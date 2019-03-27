@@ -1,0 +1,14 @@
+{
+	"private": true,
+	"scripts": {
+		"dev": "nodemon --experimental-modules --harmony index.mjs",
+		"start": "node --experimental-modules --harmony index.mjs",
+		"docker": "NODE_ENV=production npm install && node --experimental-modules --harmony index.mjs"
+	},
+	"dependencies": {
+		"koa": "^2.7.0",
+		"koa-session": "^5.10.1",
+		"nanoid": "^2.0.1",
+		"node-fetch": "^2.3.0"
+	}
+}
