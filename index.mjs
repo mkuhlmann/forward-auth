@@ -66,6 +66,10 @@ if(fs.existsSync('./config.json')) {
 		
 		ctx.session.state = state;
 		
+		if (ctx.state.forwardedUri) {
+			ctx.session.redirect = ctx.state.forwardedUri.href;
+		}
+
 		ctx.redirect(`${app.config.loginUrl}?client_id=${authConfig.clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&state=${state}`);
 	};
 	
@@ -113,7 +117,8 @@ if(fs.existsSync('./config.json')) {
 			name: userinfo.name
 		};
 		
-		ctx.redirect(ctx.origin);
+		let redirect = ctx.session.redirect || ctx.origin;
+		ctx.redirect(redirect);
 	};
 	
 	app.handleAuthOk = async (ctx, next) => {
@@ -143,6 +148,7 @@ if(fs.existsSync('./config.json')) {
 		let forwardedUri = null;
 		if(ctx.header['x-forwarded-uri']) {
 			forwardedUri = new URL(ctx.header['x-forwarded-proto'] + '://' + ctx.header['x-forwarded-host'] + ctx.header['x-forwarded-uri']);
+			ctx.state.forwardedUri = forwardedUri;
 		}
 
 		if(forwardedUri && forwardedUri.pathname == '/_auth/callback') {
