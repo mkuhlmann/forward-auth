@@ -3,6 +3,7 @@ import koaSession from 'koa-session';
 import nanoid from 'nanoid';
 import fetch from 'node-fetch';
 import fs from 'fs';
+import { URLSearchParams } from 'url';
 import Log from './Log.mjs';
 
 let config = {
@@ -87,10 +88,7 @@ if(fs.existsSync('./config.json')) {
 		
 		let json = await fetch(app.config.tokenUrl, {
 			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json'
-			},
-			body: JSON.stringify({
+			body: new URLSearchParams({
 				client_id: authConfig.clientId,
 				client_secret: authConfig.clientSecret,
 				code: query.code,
