@@ -42,6 +42,10 @@ if(fs.existsSync('./config.json')) {
 
 		return config;
 	};
+	
+	app.getRedirectUri = (ctx) => {
+		return ctx.origin + '/_auth/callback';
+	};
  	
 	app.handleAuth = async (ctx, next) => {
 		if(ctx.session.user && ctx.session.user.sub) {
@@ -63,7 +67,7 @@ if(fs.existsSync('./config.json')) {
 		let state = nanoid();
 		let scope = ctx.query.scope || '';
 		
-		let redirectUri = ctx.origin + '/_auth/callback';
+		let redirectUri = app.getRedirectUri(ctx);
 		
 		ctx.session.state = state;
 		
@@ -92,7 +96,8 @@ if(fs.existsSync('./config.json')) {
 				client_id: authConfig.clientId,
 				client_secret: authConfig.clientSecret,
 				code: query.code,
-				grant_type: 'authorization_code'
+				grant_type: 'authorization_code',
+				redirect_uri: app.getRedirectUri(ctx)
 			})
 		}).then(res => res.json());
 
