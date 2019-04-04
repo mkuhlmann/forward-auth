@@ -3,7 +3,6 @@ import koaSession from 'koa-session';
 import nanoid from 'nanoid';
 import fetch from 'node-fetch';
 import fs from 'fs';
-import { URLSearchParams } from 'url';
 import Log from './Log.mjs';
 
 let config = {
