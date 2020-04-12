@@ -1,14 +1,21 @@
 {
 	"private": true,
+	"type": "module",
 	"scripts": {
-		"dev": "nodemon --experimental-modules --harmony index.mjs",
-		"start": "node --experimental-modules --harmony index.mjs",
-		"docker": "NODE_ENV=production npm install && node --experimental-modules --harmony index.mjs"
+		"start": "node --harmony index.js",
+		"docker": "NODE_ENV=production node --harmony index.js",
+		"test": "./node_modules/mocha/bin/mocha"
 	},
 	"dependencies": {
-		"koa": "^2.7.0",
-		"koa-session": "^5.10.1",
-		"nanoid": "^2.0.1",
-		"node-fetch": "^2.3.0"
+		"koa": "^2.11.0",
+		"koa-session": "^5.13.1",
+		"nanoid": "^2",
+		"node-fetch": "^2.6.0"
+	},
+	"devDependencies": {
+		"@types/node": "^13.11.1",
+		"chai": "^4.2.0",
+		"mocha": "^7.1.1",
+		"node-fetch-cookies": "^1.3.5"
 	}
 }
