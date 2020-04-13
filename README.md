@@ -3,27 +3,31 @@
 [![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/mkuhlmann/forward-auth.svg)](https://hub.docker.com/r/mkuhlmann/forward-auth)
 [![Build Status](https://travis-ci.org/mkuhlmann/forward-auth.svg?branch=master)](https://travis-ci.org/mkuhlmann/forward-auth)
 
-Highly flexible forward (o)auth service for use with a reverse proxy (traefik recommened).
+Highly flexible forward auth service for use with an oauth endpoint and a reverse proxy (e.g. [traefik](https://docs.traefik.io/middlewares/forwardauth/)).
 
 ## Configuration
 
-forward-auth can be configurated in three ways, which are applied by following priority (low to high): config.json > environment variables > query params. Please use UPPER_CASE in environment variables, lower_case otherwise.
+forward-auth can be configurated in three ways, values are applied in following priority (low to high): 
+
+`config.json < environment variables < query params` 
+
+Please use UPPER_CASE in environment variables, lower_case otherwise. Note that listen_host, listen_port, app_key and cookie_name cannot be set via query params.
 
 The following options are available:
 
-Config Key | Description | Required? | Default
+Config Key | Description | Required | Default
 ---------- | ----------- | -------   | -------
-listen_host| host to bind | | 0.0.0.0
-listen_port| port to bind | | 8080
+listen_host| host to bind |  | `0.0.0.0`
+listen_port| port to bind | | `8080`
 app_key    | keys for cookie signing, passed to koajs | ✔ |
+cookie_name | Name of Cookie | | `__auth`
 authorize_url  | OAuth Authorization Request URL ([Spec](https://tools.ietf.org/html/rfc6749#section-4.1.1)) | ✔ |
 token_url  | OAuth Access Token Endpoint| ✔ |
-userinfo_url   | OpenID Connect UserInfo endpoint, must return `sub` field| ✔ |
+userinfo_url   | OpenID Connect UserInfo endpoint, must include `sub` field| ✔ |
 client_id | OAuth Client Id| ✔ |
 client_secret | OAuth Client Secret| ✔ |
-allowed_users | Comma seperated list of allowed `sub`s| | 
-scopes | OAuth Scopes | []
-cookie_name | Name of Cookie | __auth
+allowed_users | Comma-seperated list of allowed `sub`s, empty = anyone | | 
+scopes | Comma-seperated OAuth Scopes |  | `id`
 
 When client is authenticated, forward_auth passes X-Auth-User with the sub and X-Auth-Info with the json encoded userinfo_url response, those may be passed to your application via the reverse proxy (see example below).
 
