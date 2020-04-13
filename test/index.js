@@ -5,18 +5,18 @@ import assert from 'assert';
 import { runForwardAuth } from '../ForwardAuth.js';
 
 const config = {
-	appKey: ['THIS_SHOULD_BE_CHANGED'],
+	app_key: ['THIS_SHOULD_BE_CHANGED'],
 
-	loginUrl: 'http://127.0.0.1:8081/login',
-	tokenUrl: 'http://127.0.0.1:8081/token',
-	userUrl: 'http://127.0.0.1:8081/userinfo',
+	authorize_url: 'http://127.0.0.1:8081/login',
+	token_url: 'http://127.0.0.1:8081/token',
+	userinfo_url: 'http://127.0.0.1:8081/userinfo',
 
-	clientId: 'clientId',
-	clientSecret: 'clientSecret',
-	allowedUsers: ['testOkUser'],
+	client_id: 'clientId',
+	client_secret: 'clientSecret',
+	allowed_users: ['testOkUser'],
 	scopes: 'test',
 
-	cookieName: '__auth'
+	cookie_name: '__auth'
 };
 
 const forwardAuth = runForwardAuth(config);

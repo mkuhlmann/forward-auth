@@ -1,8 +1,30 @@
 
 # forward-auth
 [![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/mkuhlmann/forward-auth.svg)](https://hub.docker.com/r/mkuhlmann/forward-auth)
+[![Build Status](https://travis-ci.org/mkuhlmann/forward-auth.svg?branch=master)](https://travis-ci.org/mkuhlmann/forward-auth)
 
-This is a flexible forward auth service for use with the traefik reverse proxy.
+Highly flexible forward (o)auth service for use with a reverse proxy (traefik recommened).
+
+## Configuration
+
+forward-auth can be configurated in three ways, which are applied by following priority (low to high): config.json > environment variables > query params. Please use UPPER_CASE in environment variables, lower_case otherwise.
+
+The following options are available:
+
+Config Key | Description | Required? | Default
+---------- | ----------- | -------   | -------
+app_key    | keys for cookie signing, passed to koajs | ✔ |
+authorize_url  | OAuth Authorization Request URL ([Spec](https://tools.ietf.org/html/rfc6749#section-4.1.1)) | ✔ |
+token_url  | OAuth Access Token Endpoint| ✔ |
+userinfo_url   | OpenID Connect UserInfo endpoint, must return `sub` field| ✔ |
+client_id | OAuth Client Id| ✔ |
+client_secret | OAuth Client Secret| ✔ |
+allowed_users | Comma seperated list of allowed `sub`s| | 
+scopes | OAuth Scopes | []
+cookie_name | Name of Cookie | __auth
+
+When client is authenticated, forward_auth passes X-Auth-User with the sub and X-Auth-Info with the json encoded userinfo_url response, those may be passed to your application via the reverse proxy (see example below).
+
 
 
 ## Usage
@@ -11,49 +33,43 @@ Example `docker-compose.yml`
 
 ```yaml
 version: '3.5'
-
-volumes:
-  traefik:
-  
-networks:
-  proxy:
   
 services:
   traefik:
-    image: traefik:alpine
+    image: traefik:2.2
     restart: always
+    command:
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
     ports:
       - 80:80
-      - 443:443
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - traefik:/etc/traefik
-    networks:
-      - proxy
+
       
     forward_auth:
       image: mkuhlmann/forward-auth
       restart: unless-stopped
       environment:
         - APP_KEY=CHANGE_ME
-        - LOGIN_URL=https://example.com/oauth/authorize
-        - TOKEN_URL=https://example.com/api/oauth/token
-        - USER_URL=https://example.com/api/oauth/userinfo
-      networks:
-        - proxy
+        - AUTHORIZE_URL=https://example.com/oauth/authorize
+        - TOKEN_URL=https://example.com/oauth/token
+        - USERINFO_URL=https://example.com/oauth/userinfo
+        - CLIENT_ID=clientid
+        - CLIENT_SECRET=verysecret
     
     nginx:
-      image: nginx:1-alpine
+      image: nginx:mainline-alpine
       networks:
         - proxy
       labels:
-        - traefik.enable=true
-        - traefik.port=80
-        - traefik.docker.network=proxy
-        - traefik.frontend.rule=Host:private.example.com
-        - traefik.frontend.auth.forward.address=http://forward_auth:8080/auth?client_id=CLIENT_ID_HERE&client_secret=CLIENT_SECRET_HERE&allowed_users=OPTIONAL_LIMIT_USERS
-     
-      
+        - "traefik.enable=true"
+        - "traefik.http.services.nginx.loadbalancer.server.port: 80"
+        - "traefik.http.routers.nginx.entrypoints=web"
+        - "traefik.http.routers.nginx.rule=Host(`private.example.com`)"
+        - "traefik.http.middlewares.forward_auth.forwardauth.address=http://forward_auth:8080/auth?allowed_users=ALLOWED_USER_SUB"
+        - "traefik.http.middlewares.forward_auth.forwardauth.authResponseHeaders=X-Auth-User,X-Auth-Info"
 ```
 
 ## Contributing

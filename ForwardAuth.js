@@ -36,7 +36,7 @@ class ForwardAuth {
 	async handleOAuthRedirect(ctx, next) {
 		let config = this.getQueryConfig(ctx.query);
 		
-		if(!config.clientId || !config.clientSecret) {
+		if(!config.client_id || !config.client_secret) {
 			this.log.error('handleOAuthRedirect :: invalid clientId and/or clientSecret supplied.');
 			return ctx.throw(401, 'invalid request');
 		}
@@ -52,7 +52,7 @@ class ForwardAuth {
 			ctx.session.redirect = ctx.state.forwardedUri.href;
 		}
 
-		ctx.redirect(`${config.loginUrl}?client_id=${config.clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&state=${state}`);
+		ctx.redirect(`${config.authorize_url}?client_id=${config.client_id}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&state=${state}`);
 	}
 
 	/**
@@ -73,11 +73,11 @@ class ForwardAuth {
 		delete ctx.session.state;
 		let config = this.getQueryConfig(ctx.query); // use proxyquery, not browser
 		
-		let json = await fetch(config.tokenUrl, {
+		let json = await fetch(config.token_url, {
 			method: 'POST',
 			body: new URLSearchParams({
-				client_id: config.clientId,
-				client_secret: config.clientSecret,
+				client_id: config.client_id,
+				client_secret: config.client_secret,
 				code: browserQuery.code,
 				grant_type: 'authorization_code',
 				redirect_uri: this.getRedirectUri(ctx)
@@ -88,20 +88,17 @@ class ForwardAuth {
 			return ctx.throw(401, 'invalid access_token');
 		}		
 		
-		let userinfo = await fetch(config.userUrl, {
+		let userinfo = await fetch(config.userinfo_url, {
 			headers: {
 				'authorization': 'Bearer ' + json.access_token
 			}
 		}).then(res => res.json());
 		
-		if(config.allowedUsers && config.allowedUsers.indexOf(userinfo.sub) == -1) {
+		if(config.allowed_users && config.allowed_users.indexOf(userinfo.sub) == -1) {
 			return ctx.throw(401, 'user not allowed');
 		}		
 		
-		ctx.session.user = {
-			sub: userinfo.sub,
-			name: userinfo.name
-		};
+		ctx.session.user = userinfo;
 		
 		let redirect = ctx.session.redirect || ctx.origin;
 		ctx.redirect(redirect);
@@ -114,8 +111,8 @@ class ForwardAuth {
 	getQueryConfig(query) {
 		let config = { ...this.config };
 
-		config.clientId = query.client_id || config.clientId;
-		config.clientSecret = query.client_secret || config.clientSecret;
+		config.client_id = query.client_id || config.client_id;
+		config.client_secret = query.client_secret || config.client_secret;
 		config.scopes = query.scopes || config.scopes;
 
 		if(query.allowed_users) {
@@ -141,10 +138,10 @@ export function runForwardAuth(config) {
 	const forwardAuth = new ForwardAuth(config, log);
 		
 	koa.proxy = true; // always behind proxy
-	koa.keys = config.appKey;
+	koa.keys = config.app_key;
 	
 	koa.use(koaSession({
-		key: config.cookieName,
+		key: config.cookie_name,
 		maxAge: 7*24*60*60*1000
 	}, koa));
 	
