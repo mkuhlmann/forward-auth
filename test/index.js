@@ -7,8 +7,10 @@ import { runForwardAuth } from '../ForwardAuth.js';
 const config = {
 	listen_host: '0.0.0.0',
 	listen_port: 8080,
+
+	redirect_code: 302,
 	
-	app_key: ['THIS_SHOULD_BE_CHANGED'],
+	app_key: 'THIS_SHOULD_BE_CHANGED',
 
 	authorize_url: 'http://127.0.0.1:8081/login',
 	token_url: 'http://127.0.0.1:8081/token',
@@ -44,6 +46,9 @@ const httpServer = koa.listen(8081, '127.0.0.1');
 let cookieJar = new CookieJar();
 
 const fetch = (url, opt = {}) => {
+	if(!opt.headers) opt.headers = {};
+	if(!opt.redirect) opt.redirect = 'manual';
+
 	return cookieFetch(cookieJar, url, opt);
 };
 
@@ -58,13 +63,28 @@ describe('an unauthenicated user', async () => {
 				'x-forwarded-proto': 'http',
 				'x-forwarded-host': 'app',
 				'x-forwarded-uri': '/redirect/to/here'
-			},
-			redirect: 'manual'
+			}
 		});
 	});
 
 	it('should be redirected to oauth login', async function() {
 		assert.strictEqual(response.headers.get('location').indexOf('http://127.0.0.1:8081/login'), 0);
+	});
+
+	it('should be a 302 redirection', async function() {
+		assert.strictEqual(response.status, 302);
+	});
+
+	it('should now be a 403 redirection', async function() {
+		response = await fetch('http://127.0.0.1:8080/auth?redirect_code=403', {
+			headers: {
+				'x-forwarded-proto': 'http',
+				'x-forwarded-host': 'app',
+				'x-forwarded-uri': '/redirect/to/here'
+			}
+		});
+
+		assert.strictEqual(response.status, 403);
 	});
 
 	
@@ -93,8 +113,7 @@ describe('an valid user calling oauth callback', () => {
 				'x-forwarded-proto': 'http',
 				'x-forwarded-host': '127.0.0.1:8080',
 				'x-forwarded-uri': '/_auth/callback?code=test&state=' + oauthState
-			},
-			redirect: 'manual'
+			}
 		});
 		assert.equal(r.headers.get('location'), 'http://app/redirect/to/here');
 	});
@@ -114,8 +133,7 @@ describe('an invalid user calling oauth callback', () => {
 				'x-forwarded-proto': 'http',
 				'x-forwarded-host': 'app',
 				'x-forwarded-uri': '/redirect/to/here'
-			},
-			redirect: 'manual'
+			}
 		});
 		let re = response.headers.get('location').match(/state=([\w_-]+)$/i);
 		oauthState = re[1];
@@ -128,8 +146,7 @@ describe('an invalid user calling oauth callback', () => {
 				'x-forwarded-proto': 'http',
 				'x-forwarded-host': '127.0.0.1:8080',
 				'x-forwarded-uri': '/_auth/callback?code=test&state=' + oauthState
-			},
-			redirect: 'manual'
+			}
 		});
 		assert.equal(r.status, 401);
 	});

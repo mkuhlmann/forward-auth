@@ -53,6 +53,7 @@ class ForwardAuth {
 		}
 
 		ctx.redirect(`${config.authorize_url}?client_id=${config.client_id}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&state=${state}`);
+		ctx.status = config.redirect_code;
 	}
 
 	/**
@@ -101,7 +102,8 @@ class ForwardAuth {
 		ctx.session.user = userinfo;
 		
 		let redirect = ctx.session.redirect || ctx.origin;
-		ctx.status = config.redirect_code,
+
+		ctx.status = config.redirect_code;
 		ctx.redirect(redirect);
 	}
 
@@ -115,6 +117,7 @@ class ForwardAuth {
 		config.client_id = query.client_id || config.client_id;
 		config.client_secret = query.client_secret || config.client_secret;
 		config.scopes = query.scopes || config.scopes;
+		config.redirect_code = parseInt(query.redirect_code || config.redirect_code);
 
 		if(query.allowed_users) {
 			config.allowedUsers = query.allowed_users.split(',');
@@ -139,7 +142,7 @@ export function runForwardAuth(config) {
 	const forwardAuth = new ForwardAuth(config, log);
 		
 	koa.proxy = true; // always behind proxy
-	koa.keys = config.app_key;
+	koa.keys = [ config.app_key ];
 	
 	koa.use(koaSession({
 		key: config.cookie_name,
