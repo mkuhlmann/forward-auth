@@ -21,6 +21,7 @@ listen_host| host to bind |  | `0.0.0.0`
 listen_port| port to bind | | `8080`
 app_key    | keys for cookie signing, passed to koajs | ✔ |
 cookie_name | Name of Cookie | | `__auth`
+redirect_code | HTTP status code to return, when redirecting<sup>[because](http://nginx.org/en/docs/http/ngx_http_auth_request_module.html)</sup> | | 302
 authorize_url  | OAuth Authorization Request URL ([Spec](https://tools.ietf.org/html/rfc6749#section-4.1.1)) | ✔ |
 token_url  | OAuth Access Token Endpoint| ✔ |
 userinfo_url   | OpenID Connect UserInfo endpoint, must include `sub` field| ✔ |

@@ -101,6 +101,7 @@ class ForwardAuth {
 		ctx.session.user = userinfo;
 		
 		let redirect = ctx.session.redirect || ctx.origin;
+		ctx.status = config.redirect_code,
 		ctx.redirect(redirect);
 	}
 
