@@ -13,6 +13,8 @@ The following options are available:
 
 Config Key | Description | Required? | Default
 ---------- | ----------- | -------   | -------
+listen_host| host to bind | | 0.0.0.0
+listen_port| port to bind | | 8080
 app_key    | keys for cookie signing, passed to koajs | ✔ |
 authorize_url  | OAuth Authorization Request URL ([Spec](https://tools.ietf.org/html/rfc6749#section-4.1.1)) | ✔ |
 token_url  | OAuth Access Token Endpoint| ✔ |

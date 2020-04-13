@@ -5,6 +5,9 @@ import assert from 'assert';
 import { runForwardAuth } from '../ForwardAuth.js';
 
 const config = {
+	listen_host: '0.0.0.0',
+	listen_port: 8080,
+	
 	app_key: ['THIS_SHOULD_BE_CHANGED'],
 
 	authorize_url: 'http://127.0.0.1:8081/login',

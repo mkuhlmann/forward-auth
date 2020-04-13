@@ -169,7 +169,7 @@ export function runForwardAuth(config) {
 		}
 	});	
 	
-	const httpServer = koa.listen(8080, '0.0.0.0');
+	const httpServer = koa.listen(config.listen_port, config.listen_host);
 	log.info('forwardAuth :: listening on 0.0.0.0:8080');
 	
 	return { httpServer, koa, forwardAuth, log };

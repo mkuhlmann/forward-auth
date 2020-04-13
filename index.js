@@ -2,6 +2,9 @@ import fs from 'fs';
 import { runForwardAuth } from './ForwardAuth.js';
 
 let config = {
+	listen_host: process.env.LISTEN_HOST || '0.0.0.0',
+	listen_port: process.env.LISTEN_PORT || 8080,
+
 	app_key: [ process.env.APP_KEY ],
 	authorize_url: process.env.authorize_url,
 	token_url: process.env.TOKEN_URL,
