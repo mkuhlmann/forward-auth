@@ -1,14 +1,11 @@
 import Koa from 'koa';
-import koaSession from 'koa-session';
-import nanoid from 'nanoid';
+import { nanoid } from 'nanoid';
 import fetch from 'node-fetch';
-
-
 import Log from './Log.js';
-
 
 class ForwardAuth {
 
+	/** @param {Log} log */
 	constructor(config, log) {
 		/** @type {Object} */
 		this.config = config;
@@ -59,15 +56,16 @@ class ForwardAuth {
 	/**
 	 * 
 	 * @param {object} query The forwarded (from the browser) query arguments
-	 * @param {*} ctx 
+	 * @param {Koa.Context} ctx 
 	 * @param {*} next 
 	 */
 	async handleOAuthCallback(browserQuery, ctx, next) {
 		if(!browserQuery.code) {
 			return ctx.throw(400, 'invalid code');
 		}
-		
+
 		if(browserQuery.state != ctx.session.state) {
+			this.log.info(`handleOAuthCallback :: invalid state from ${ctx.ip}`);
 			return ctx.throw(400, 'invalid state');
 		}
 		
@@ -107,6 +105,7 @@ class ForwardAuth {
 		ctx.redirect(redirect);
 	}
 
+	/** @param {Koa.Context} ctx */
 	getRedirectUri(ctx) {
 		return ctx.origin + '/_auth/callback';
 	}
@@ -144,11 +143,28 @@ export function runForwardAuth(config) {
 	koa.proxy = true; // always behind proxy
 	koa.keys = [ config.app_key ];
 	
-	koa.use(koaSession({
-		key: config.cookie_name,
-		maxAge: 7*24*60*60*1000
-	}, koa));
-	
+	// spin our own cookie
+	koa.use(async (ctx, next) => {
+		ctx.session = {};
+		let cookie = ctx.cookies.get(config.cookie_name);
+
+		if(cookie) {
+			let parts = cookie.split('.');
+			if(parts.length == 2 && ctx.cookies.keys.verify(parts[0], parts[1])) {
+				ctx.session = JSON.parse(Buffer.from(parts[0], 'base64').toString());
+			}
+		}
+
+		await next();
+
+		let sessionEncoded = Buffer.from(JSON.stringify(ctx.session)).toString('base64');
+		cookie = sessionEncoded + '.' + ctx.cookies.keys.sign(sessionEncoded);
+		ctx.cookies.set(config.cookie_name, cookie, {
+			maxAge: 7*24*60*60*1000,
+			signed: false
+		});
+		
+	});
 		
 	koa.use(async (ctx, next) => {
 		ctx.code = 401; // ensure we don't send a 2xx code!
