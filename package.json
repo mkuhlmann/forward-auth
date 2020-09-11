@@ -9,7 +9,7 @@
 	"dependencies": {
 		"koa": "^2.11.0",
 		"nanoid": "^3",
-		"node-fetch": "^2.6.0"
+		"node-fetch": "^2.6.1"
 	},
 	"devDependencies": {
 		"@types/koa": "^2.11.3",
