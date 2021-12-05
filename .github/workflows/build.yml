@@ -1,4 +1,4 @@
-name: CI & Dockerize
+name: build
 
 on:
   push:
@@ -22,7 +22,8 @@ jobs:
       - name: Run tests
         run: npm test
     
-  docker:    
+  docker:
+    needs: test
     runs-on: ubuntu-latest
     steps:
       -
