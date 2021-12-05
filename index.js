@@ -8,9 +8,9 @@ let config = {
 	redirect_code: parseInt(process.env.REDIRECT_CODE || 302),
 
 	app_key: process.env.APP_KEY,
-	authorize_url: process.env.authorize_url,
+	authorize_url: process.env.AUTHORIZE_URL,
 	token_url: process.env.TOKEN_URL,
-	userinfo_url: process.env.userinfo_url,
+	userinfo_url: process.env.USERINFO_URL,
 
 	client_id: process.env.CLIENT_ID || null,
 	client_secret: process.env.CLIENT_SECRET || null,
