@@ -1,7 +1,6 @@
 
 # forward-auth
-[![Docker Cloud Build Status](https://img.shields.io/docker/cloud/build/mkuhlmann/forward-auth.svg)](https://hub.docker.com/r/mkuhlmann/forward-auth)
-[![Build Status](https://travis-ci.org/mkuhlmann/forward-auth.svg?branch=master)](https://travis-ci.org/mkuhlmann/forward-auth)
+![GitHub Workflow Status](https://img.shields.io/github/workflow/status/mkuhlmann/forward-auth/build)
 
 Highly flexible forward auth service for use with an oauth endpoint and a reverse proxy (e.g. [traefik](https://docs.traefik.io/middlewares/forwardauth/)).
 
@@ -11,7 +10,7 @@ forward-auth can be configurated in three ways, values are applied in following 
 
 `config.json < environment variables < query params` 
 
-Please use UPPER_CASE in environment variables, lower_case otherwise. Note that listen_host, listen_port, app_key and cookie_name cannot be set via query params.
+Please use UPPER_CASE in environment variables, lower_case otherwise. Note that listen_host, listen_port, app_key, cookie_name and cookie_age cannot be set via query params.
 
 The following options are available:
 
@@ -21,6 +20,7 @@ listen_host| host to bind |  | `0.0.0.0`
 listen_port| port to bind | | `8080`
 app_key    | keys for cookie signing, passed to koajs | ✔ |
 cookie_name | Name of Cookie | | `__auth`
+cookie_age | Max age of cookie in seconds  | | `604800` (7 days)
 redirect_code | HTTP status code to return, when redirecting<sup>[because](http://nginx.org/en/docs/http/ngx_http_auth_request_module.html)</sup> | | 302
 authorize_url  | OAuth Authorization Request URL ([spec](https://tools.ietf.org/html/rfc6749#section-4.1.1)) | ✔ |
 token_url  | OAuth Access Token Endpoint| ✔ |

@@ -17,7 +17,8 @@ let config = {
 	allowed_users: process.env.ALLOWED_USERS || null,
 	scopes: process.env.SCOPES || null,
 	
-	cookie_name: process.env.COOKIE_NAME || '__auth'
+	cookie_name: process.env.COOKIE_NAME || '__auth',
+	cookie_age: parseInt(process.env.COOKIE_AGE || 604800) // 7 days
 };
 
 // local config.json file can overwrite default env

@@ -160,7 +160,7 @@ export function runForwardAuth(config) {
 		let sessionEncoded = Buffer.from(JSON.stringify(ctx.session)).toString('base64');
 		cookie = sessionEncoded + '.' + ctx.cookies.keys.sign(sessionEncoded);
 		ctx.cookies.set(config.cookie_name, cookie, {
-			maxAge: 7*24*60*60*1000,
+			maxAge: config.cookie_age,
 			signed: false
 		});
 		

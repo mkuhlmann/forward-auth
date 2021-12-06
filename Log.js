@@ -1,6 +1,5 @@
 import fs from 'fs';
 
-
 export default class Log {
 	
 	constructor() {
