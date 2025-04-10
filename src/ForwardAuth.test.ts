@@ -201,6 +201,7 @@ describe('valid user calling OAuth callback', () => {
 
 describe('Invalid user calling OAuth callback', () => {
 	test('should be declined', async () => {
+		cookieJar = new TestCookieJar();
 		const _response = await testFetch('http://127.0.0.1:8080/auth', {
 			headers: {
 				'x-forwarded-proto': 'http',
