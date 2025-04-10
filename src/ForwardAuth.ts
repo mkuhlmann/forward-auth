@@ -184,7 +184,7 @@ class ForwardAuth {
 	}
 
 	getOrigin(req: Request): string {
-		const host = req.headers.get('host') || '';
+		const host = req.headers.get('x-forwarded-host') || req.headers.get('host') || '';
 		const proto = req.headers.get('x-forwarded-proto') || 'http';
 		return `${proto}://${host}`;
 	}
