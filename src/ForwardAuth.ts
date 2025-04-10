@@ -21,10 +21,11 @@ interface Config {
 	authorize_url: string;
 	token_url: string;
 	userinfo_url: string;
-	client_id: string | null;
-	client_secret: string | null;
-	allowed_users: string | null;
-	scopes: string | null;
+	discovery_url?: string;
+	client_id?: string;
+	client_secret?: string;
+	allowed_users?: string;
+	scopes?: string;
 	cookie_name: string;
 	cookie_age: number;
 }
@@ -37,15 +38,26 @@ interface TokenResponse {
 	scope?: string;
 }
 
+interface OIDCDiscoveryDocument {
+	authorization_endpoint: string;
+	token_endpoint: string;
+	userinfo_endpoint: string;
+	[key: string]: any;
+}
+
 class ForwardAuth {
 	config: Config;
 	log: Log;
 	cookieJar: CookieJar;
+	discoveryCache: Map<string, OIDCDiscoveryDocument>;
+	discoveryCacheTime: Map<string, number>;
 
 	constructor(config: Config, log: Log) {
 		this.config = config;
 		this.log = log;
 		this.cookieJar = new CookieJar(config.app_key);
+		this.discoveryCache = new Map();
+		this.discoveryCacheTime = new Map();
 	}
 
 	async handleAuthCheck(req: Request, url: URL): Promise<Response> {
@@ -75,7 +87,7 @@ class ForwardAuth {
 
 	async handleOAuthRedirect(req: Request, url: URL, session: Session): Promise<Response> {
 		const query = Object.fromEntries(url.searchParams);
-		const config = this.getQueryConfig(query);
+		const config = await this.getConfigWithDiscovery(query);
 
 		if (!config.client_id || !config.client_secret) {
 			this.log.error('handleOAuthRedirect :: invalid clientId and/or clientSecret supplied.');
@@ -120,7 +132,7 @@ class ForwardAuth {
 
 		delete session.state;
 		const query = Object.fromEntries(new URL(req.url).searchParams);
-		const config = this.getQueryConfig(query);
+		const config = await this.getConfigWithDiscovery(query);
 
 		const tokenResponse = await fetch(config.token_url, {
 			method: 'POST',
@@ -188,6 +200,42 @@ class ForwardAuth {
 		return null;
 	}
 
+	async fetchOIDCDiscoveryDocument(discoveryUrl: string): Promise<OIDCDiscoveryDocument | null> {
+		try {
+			// Check cache first (cache for 1 hour)
+			const now = this.unixtime();
+			const cachedTime = this.discoveryCacheTime.get(discoveryUrl) || 0;
+
+			if (this.discoveryCache.has(discoveryUrl) && now - cachedTime < 3600) {
+				return this.discoveryCache.get(discoveryUrl) || null;
+			}
+
+			// Ensure the URL ends with /.well-known/openid-configuration if not provided
+			let fullUrl = discoveryUrl;
+			if (!discoveryUrl.endsWith('/.well-known/openid-configuration')) {
+				fullUrl = discoveryUrl.endsWith('/') ? `${discoveryUrl}.well-known/openid-configuration` : `${discoveryUrl}/.well-known/openid-configuration`;
+			}
+
+			const response = await fetch(fullUrl);
+
+			if (!response.ok) {
+				this.log.error(`Failed to fetch OIDC discovery document: ${response.status} ${response.statusText}`);
+				return null;
+			}
+
+			const document = (await response.json()) as OIDCDiscoveryDocument;
+
+			// Cache the result
+			this.discoveryCache.set(discoveryUrl, document);
+			this.discoveryCacheTime.set(discoveryUrl, now);
+
+			return document;
+		} catch (error) {
+			this.log.error('Error fetching OIDC discovery document', error);
+			return null;
+		}
+	}
+
 	getQueryConfig(query: Record<string, string>): Config {
 		const config = { ...this.config };
 
@@ -195,9 +243,39 @@ class ForwardAuth {
 		if (query.client_secret) config.client_secret = query.client_secret;
 		if (query.scopes) config.scopes = query.scopes;
 		if (query.redirect_code) config.redirect_code = parseInt(query.redirect_code);
+		if (query.authorize_url) config.authorize_url = query.authorize_url;
+		if (query.token_url) config.token_url = query.token_url;
+		if (query.userinfo_url) config.userinfo_url = query.userinfo_url;
+		if (query.discovery_url) config.discovery_url = query.discovery_url;
 
 		if (query.allowed_users) {
 			config.allowed_users = query.allowed_users;
+		}
+
+		return config;
+	}
+
+	async getConfigWithDiscovery(query: Record<string, string>): Promise<Config> {
+		const config = this.getQueryConfig(query);
+
+		// If discovery_url is provided, try to fetch OIDC endpoints
+		if (config.discovery_url) {
+			const discoveryDoc = await this.fetchOIDCDiscoveryDocument(config.discovery_url);
+
+			if (discoveryDoc) {
+				// Only override if values are not explicitly provided in query
+				if (!query.authorize_url && discoveryDoc.authorization_endpoint) {
+					config.authorize_url = discoveryDoc.authorization_endpoint;
+				}
+
+				if (!query.token_url && discoveryDoc.token_endpoint) {
+					config.token_url = discoveryDoc.token_endpoint;
+				}
+
+				if (!query.userinfo_url && discoveryDoc.userinfo_endpoint) {
+					config.userinfo_url = discoveryDoc.userinfo_endpoint;
+				}
+			}
 		}
 
 		return config;

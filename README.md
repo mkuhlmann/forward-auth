@@ -2,8 +2,6 @@
 
 v2 🎉
 
-![GitHub Workflow Status](https://img.shields.io/github/workflow/status/mkuhlmann/forward-auth/build)
-
 Highly flexible forward auth service for use with an oauth endpoint and a reverse proxy (e.g. [traefik](https://docs.traefik.io/middlewares/forwardauth/)).
 
 ## Configuration
@@ -24,15 +22,32 @@ The following options are available:
 | cookie_name   | Name of Cookie                                                                                                                    |          | `__auth`          |
 | cookie_age    | Max age of cookie in seconds                                                                                                      |          | `604800` (7 days) |
 | redirect_code | HTTP status code to return, when redirecting<sup>[because](http://nginx.org/en/docs/http/ngx_http_auth_request_module.html)</sup> |          | 302               |
-| authorize_url | OAuth Authorization Request URL ([spec](https://tools.ietf.org/html/rfc6749#section-4.1.1))                                       | ✔        |
-| token_url     | OAuth Access Token Endpoint                                                                                                       | ✔        |
-| userinfo_url  | OpenID Connect UserInfo endpoint, must include `sub` field                                                                        | ✔        |
-| client_id     | OAuth Client Id                                                                                                                   | ✔        |
-| client_secret | OAuth Client Secret                                                                                                               | ✔        |
+| discovery_url | OpenID Connect Discovery URL, used to auto-configure authorize_url, token_url and userinfo_url                                    |          |                   |
+| authorize_url | OAuth Authorization Request URL ([spec](https://tools.ietf.org/html/rfc6749#section-4.1.1))                                       | ✔\*      |                   |
+| token_url     | OAuth Access Token Endpoint                                                                                                       | ✔\*      |                   |
+| userinfo_url  | OpenID Connect UserInfo endpoint, must include `sub` field                                                                        | ✔\*      |                   |
+| client_id     | OAuth Client Id                                                                                                                   | ✔        |                   |
+| client_secret | OAuth Client Secret                                                                                                               | ✔        |                   |
 | allowed_users | Comma-seperated list of allowed `sub`s, empty = anyone                                                                            |          | `[]`              |
 | scopes        | Comma-seperated OAuth Scopes                                                                                                      |          | `id`              |
 
+\* You can either provide individual URLs (authorize_url, token_url, userinfo_url) OR use discovery_url to automatically fetch them from an OpenID Connect provider's discovery document.
+
 When client is authenticated, forward_auth passes X-Auth-User with the sub and X-Auth-Info with the json encoded userinfo_url response, those may be passed to your application via the reverse proxy (see example below).
+
+## OpenID Connect Discovery
+
+If your identity provider supports OpenID Connect, you can use the discovery_url parameter instead of manually configuring the endpoint URLs.
+The service will automatically fetch the standard endpoints from the provider's discovery document available at `/.well-known/openid-configuration`.
+
+For example, with Google:
+
+```
+discovery_url=https://accounts.google.com
+```
+
+This will automatically configure authorize_url, token_url, and userinfo_url based on the discovery document.
+If you provide any of these URLs explicitly, they will override the values from the discovery document.
 
 ## Usage
 
@@ -59,9 +74,12 @@ services:
     restart: unless-stopped
     environment:
       - APP_KEY=CHANGE_ME
-      - AUTHORIZE_URL=https://example.com/oauth/authorize
-      - TOKEN_URL=https://example.com/oauth/token
-      - USERINFO_URL=https://example.com/oauth/userinfo
+      # Either use discovery_url
+      - DISCOVERY_URL=https://example.com
+      # OR specify individual endpoints
+      # - AUTHORIZE_URL=https://example.com/oauth/authorize
+      # - TOKEN_URL=https://example.com/oauth/token
+      # - USERINFO_URL=https://example.com/oauth/userinfo
       - CLIENT_ID=clientid
       - CLIENT_SECRET=verysecret
 

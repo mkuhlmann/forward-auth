@@ -99,6 +99,34 @@ beforeAll(() => {
 				return new Response(JSON.stringify({ name: 'Test User', sub: currentUser }), {
 					headers: { 'Content-Type': 'application/json' },
 				});
+			} else if (url.pathname === '/.well-known/openid-configuration') {
+				// OpenID Discovery document
+				return new Response(
+					JSON.stringify({
+						issuer: 'http://127.0.0.1:8081',
+						authorization_endpoint: 'http://127.0.0.1:8081/discovery-login',
+						token_endpoint: 'http://127.0.0.1:8081/discovery-token',
+						userinfo_endpoint: 'http://127.0.0.1:8081/discovery-userinfo',
+						response_types_supported: ['code'],
+						subject_types_supported: ['public'],
+						id_token_signing_alg_values_supported: ['RS256'],
+					}),
+					{
+						headers: { 'Content-Type': 'application/json' },
+					}
+				);
+			} else if (url.pathname === '/discovery-login') {
+				return new Response('/discovery-login');
+			} else if (url.pathname === '/discovery-token') {
+				return new Response(JSON.stringify({ access_token: currentUser }), {
+					headers: { 'Content-Type': 'application/json' },
+				});
+			} else if (url.pathname === '/discovery-userinfo') {
+				const authHeader = req.headers.get('authorization') || '';
+				const token = authHeader.split(' ')[1];
+				return new Response(JSON.stringify({ name: 'Test User', sub: currentUser }), {
+					headers: { 'Content-Type': 'application/json' },
+				});
 			}
 
 			return new Response('Not Found', { status: 404 });
@@ -225,5 +253,136 @@ describe('Invalid user calling OAuth callback', () => {
 		});
 
 		expect(response.status).toBe(401);
+	});
+});
+
+describe('OIDC Discovery functionality', () => {
+	beforeEach(() => {
+		cookieJar = new TestCookieJar();
+	});
+
+	test('should fetch and use discovery document endpoints', async () => {
+		// Request with discovery_url param pointing to our mock server
+		const response = await testFetch('http://127.0.0.1:8080/auth?discovery_url=http://127.0.0.1:8081', {
+			headers: {
+				'x-forwarded-proto': 'http',
+				'x-forwarded-host': 'app',
+				'x-forwarded-uri': '/redirect/to/here',
+			},
+		});
+
+		// Verify the authorization endpoint from discovery is used
+		const locationHeader = response.headers.get('location') || '';
+		expect(locationHeader.startsWith('http://127.0.0.1:8081/discovery-login')).toBe(true);
+	});
+
+	test('should use explicit URLs over discovery document values', async () => {
+		// Request with both discovery_url and explicit authorize_url
+		const response = await testFetch('http://127.0.0.1:8080/auth?discovery_url=http://127.0.0.1:8081&authorize_url=http://explicit-override.example.com/authorize', {
+			headers: {
+				'x-forwarded-proto': 'http',
+				'x-forwarded-host': 'app',
+				'x-forwarded-uri': '/redirect/to/here',
+			},
+		});
+
+		// Verify the explicit authorization endpoint is used instead of the one from discovery
+		const locationHeader = response.headers.get('location') || '';
+		expect(locationHeader.startsWith('http://explicit-override.example.com/authorize')).toBe(true);
+	});
+
+	test('should complete full OAuth flow with discovery document', async () => {
+		// 1. Initial auth request with discovery URL
+		const authResponse = await testFetch('http://127.0.0.1:8080/auth?discovery_url=http://127.0.0.1:8081', {
+			headers: {
+				'x-forwarded-proto': 'http',
+				'x-forwarded-host': 'app',
+				'x-forwarded-uri': '/protected-page',
+			},
+		});
+
+		// 2. Extract the state parameter from the redirect URL
+		const locationHeader = authResponse.headers.get('location') || '';
+		const stateMatch = locationHeader.match(/state=([\w_-]+)/i);
+		const oauthState = stateMatch?.[1] || '';
+		expect(oauthState).toBeTruthy();
+
+		// 3. Simulate OAuth callback
+		currentUser = 'testOkUser'; // Ensure user is allowed
+		const callbackResponse = await testFetch('http://127.0.0.1:8080/auth', {
+			headers: {
+				'x-forwarded-proto': 'http',
+				'x-forwarded-host': '127.0.0.1:8080',
+				'x-forwarded-uri': `/_auth/callback?code=test-code&state=${oauthState}`,
+			},
+		});
+
+		// 4. Verify successful redirect back to original page
+		expect(callbackResponse.status).toBe(302);
+		expect(callbackResponse.headers.get('location')).toBe('http://app/protected-page');
+
+		// 5. Verify subsequent auth checks succeed
+		const subsequentResponse = await testFetch('http://127.0.0.1:8080/auth', {
+			redirect: 'manual',
+		});
+		expect(subsequentResponse.status).toBe(200);
+	});
+
+	test('should handle non-existent discovery endpoint gracefully', async () => {
+		// Request with discovery_url param pointing to a non-existent endpoint
+		const response = await testFetch('http://127.0.0.1:8080/auth?discovery_url=http://non-existent.example.com', {
+			headers: {
+				'x-forwarded-proto': 'http',
+				'x-forwarded-host': 'app',
+				'x-forwarded-uri': '/redirect/to/here',
+			},
+		});
+
+		// Should fall back to default endpoints
+		const locationHeader = response.headers.get('location') || '';
+		expect(locationHeader.startsWith('http://127.0.0.1:8081/login')).toBe(true);
+	});
+
+	test('should handle discovery document without required endpoints', async () => {
+		// Create a temporary server with incomplete discovery document
+		const incompleteServer = Bun.serve({
+			port: 8082,
+			hostname: '127.0.0.1',
+			fetch(req) {
+				const url = new URL(req.url);
+				if (url.pathname === '/.well-known/openid-configuration') {
+					// Missing endpoints
+					return new Response(
+						JSON.stringify({
+							issuer: 'http://127.0.0.1:8082',
+							// No authorization_endpoint
+							token_endpoint: 'http://127.0.0.1:8082/token',
+							// No userinfo_endpoint
+						}),
+						{
+							headers: { 'Content-Type': 'application/json' },
+						}
+					);
+				}
+				return new Response('Not Found', { status: 404 });
+			},
+		});
+
+		try {
+			// Request with discovery_url pointing to incomplete discovery document
+			const response = await testFetch('http://127.0.0.1:8080/auth?discovery_url=http://127.0.0.1:8082', {
+				headers: {
+					'x-forwarded-proto': 'http',
+					'x-forwarded-host': 'app',
+					'x-forwarded-uri': '/redirect/to/here',
+				},
+			});
+
+			// Should fall back to default endpoints where discovery is incomplete
+			const locationHeader = response.headers.get('location') || '';
+			expect(locationHeader.startsWith('http://127.0.0.1:8081/login')).toBe(true);
+		} finally {
+			incompleteServer.stop();
+		}
 	});
 });
