@@ -6,7 +6,7 @@ Highly flexible forward auth service for use with an oauth endpoint and a revers
 
 ## Configuration
 
-forward-auth can be configured in three ways, values are applied in following priority (low to high):
+forward-auth can be configured in two ways, values are applied in following priority (low to high):
 
 `environment variables < query params`
 
@@ -30,6 +30,7 @@ The following options are available:
 | client_secret | OAuth Client Secret                                                                                                               | ✔        |                   |
 | allowed_users | Comma-seperated list of allowed `sub`s, empty = anyone                                                                            |          | `[]`              |
 | scopes        | Comma-seperated OAuth Scopes                                                                                                      |          | `id`              |
+| log_level     | Log level (DEBUG, INFO, WARN, ERROR, NONE)                                                                                        |          | `INFO`            |
 
 \* You can either provide individual URLs (authorize_url, token_url, userinfo_url) OR use discovery_url to automatically fetch them from an OpenID Connect provider's discovery document.
 

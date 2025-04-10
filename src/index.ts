@@ -1,5 +1,25 @@
-import { readFileSync, existsSync } from 'fs';
 import { runForwardAuth } from './ForwardAuth';
+import { LogLevel } from './Log';
+
+// Parse log level from environment variable
+function parseLogLevel(level: string | undefined): LogLevel {
+	if (!level) return LogLevel.INFO;
+
+	switch (level.toUpperCase()) {
+		case 'DEBUG':
+			return LogLevel.DEBUG;
+		case 'INFO':
+			return LogLevel.INFO;
+		case 'WARN':
+			return LogLevel.WARN;
+		case 'ERROR':
+			return LogLevel.ERROR;
+		case 'NONE':
+			return LogLevel.NONE;
+		default:
+			return LogLevel.INFO;
+	}
+}
 
 // Default config
 const config = {
@@ -21,6 +41,8 @@ const config = {
 
 	cookie_name: process.env.COOKIE_NAME || '__auth',
 	cookie_age: parseInt(process.env.COOKIE_AGE || '604800'), // 7 days
+
+	log_level: parseLogLevel(process.env.LOG_LEVEL),
 };
 
 runForwardAuth(config);

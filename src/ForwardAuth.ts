@@ -1,6 +1,6 @@
 import { Server, type Serve } from 'bun';
 import { CookieJar } from './CookieJar';
-import Log from './Log';
+import Log, { LogLevel } from './Log';
 
 interface User {
 	sub: string;
@@ -28,6 +28,7 @@ interface Config {
 	scopes?: string;
 	cookie_name: string;
 	cookie_age: number;
+	log_level: LogLevel;
 }
 
 interface TokenResponse {
@@ -61,11 +62,13 @@ class ForwardAuth {
 	}
 
 	async handleAuthCheck(req: Request, url: URL): Promise<Response> {
+		this.log.debug('handleAuthCheck :: Checking authentication status', req);
 		const session = await this.getSession(req);
 
 		if (session.user && session.user.sub) {
 			// user is logged in, return 200 and set headers
 			const user = session.user;
+			this.log.debug(`handleAuthCheck :: User authenticated, id=${user.sub}`, req);
 
 			const headers = new Headers({
 				'X-Auth-User': user.sub,
@@ -81,16 +84,18 @@ class ForwardAuth {
 			);
 		} else {
 			// user is not logged in, redirect to oauth endpoint
+			this.log.debug('handleAuthCheck :: User not authenticated, redirecting to OAuth', req);
 			return this.handleOAuthRedirect(req, url, session);
 		}
 	}
 
 	async handleOAuthRedirect(req: Request, url: URL, session: Session): Promise<Response> {
+		this.log.debug('handleOAuthRedirect :: Starting OAuth redirection flow', req);
 		const query = Object.fromEntries(url.searchParams);
 		const config = await this.getConfigWithDiscovery(query);
 
 		if (!config.client_id || !config.client_secret) {
-			this.log.error('handleOAuthRedirect :: invalid clientId and/or clientSecret supplied.');
+			this.log.error('handleOAuthRedirect :: Missing client_id or client_secret', req);
 			return new Response('invalid request', { status: 401 });
 		}
 
@@ -104,9 +109,12 @@ class ForwardAuth {
 		const forwardedUri = this.getForwardedUri(req);
 		if (forwardedUri) {
 			session.redirect = forwardedUri.href;
+			this.log.debug(`handleOAuthRedirect :: Setting redirect destination to ${forwardedUri.href}`, req);
 		}
 
 		const redirectUrl = `${config.authorize_url}?client_id=${config.client_id}&redirect_uri=${redirectUri}&response_type=code&scope=${scope}&state=${state}`;
+
+		this.log.info(`handleOAuthRedirect :: Redirecting to ${redirectUrl}`, req);
 
 		return this.setSessionCookie(
 			new Response(null, {
@@ -118,69 +126,84 @@ class ForwardAuth {
 	}
 
 	async handleOAuthCallback(browserQuery: Record<string, string>, req: Request): Promise<Response> {
+		this.log.debug('handleOAuthCallback :: Processing OAuth callback', req);
 		const session = await this.getSession(req);
 
 		if (!browserQuery.code) {
+			this.log.warn('handleOAuthCallback :: Missing authorization code', req);
 			return new Response('invalid code', { status: 400 });
 		}
 
 		if (browserQuery.state != session.state) {
 			const ip = req.headers.get('x-forwarded-for') || 'unknown';
-			this.log.info(`handleOAuthCallback :: invalid state from ${ip}`);
+			this.log.warn(`handleOAuthCallback :: Invalid state from IP ${ip}`, req);
 			return new Response('invalid state', { status: 400 });
 		}
 
 		delete session.state;
+		this.log.debug('handleOAuthCallback :: State validated, exchanging code for token', req);
+
 		const query = Object.fromEntries(new URL(req.url).searchParams);
 		const config = await this.getConfigWithDiscovery(query);
 
-		const tokenResponse = await fetch(config.token_url, {
-			method: 'POST',
-			body: new URLSearchParams({
-				client_id: config.client_id || '',
-				client_secret: config.client_secret || '',
-				code: browserQuery.code,
-				grant_type: 'authorization_code',
-				redirect_uri: this.getRedirectUri(req),
-			}),
-		});
+		try {
+			const tokenResponse = await fetch(config.token_url, {
+				method: 'POST',
+				body: new URLSearchParams({
+					client_id: config.client_id || '',
+					client_secret: config.client_secret || '',
+					code: browserQuery.code,
+					grant_type: 'authorization_code',
+					redirect_uri: this.getRedirectUri(req),
+				}),
+			});
 
-		const json: TokenResponse = await tokenResponse.json();
+			const json: TokenResponse = await tokenResponse.json();
 
-		if (!json || !json.access_token) {
-			return new Response('invalid access_token', { status: 401 });
-		}
-
-		const userinfoResponse = await fetch(config.userinfo_url, {
-			headers: {
-				authorization: 'Bearer ' + json.access_token,
-			},
-		});
-
-		const userinfo: User = await userinfoResponse.json();
-
-		if (config.allowed_users) {
-			const allowedUsers = config.allowed_users.split(',');
-			if (allowedUsers.indexOf(userinfo.sub) === -1) {
-				return new Response('user not allowed', { status: 401 });
+			if (!json || !json.access_token) {
+				this.log.error('handleOAuthCallback :: Invalid or missing access token', req);
+				return new Response('invalid access_token', { status: 401 });
 			}
+
+			this.log.debug('handleOAuthCallback :: Got access token, fetching user info', req);
+			const userinfoResponse = await fetch(config.userinfo_url, {
+				headers: {
+					authorization: 'Bearer ' + json.access_token,
+				},
+			});
+
+			const userinfo: User = await userinfoResponse.json();
+			this.log.debug(`handleOAuthCallback :: User info retrieved, user=${userinfo.sub}`, req);
+
+			if (config.allowed_users) {
+				const allowedUsers = config.allowed_users.split(',');
+				if (allowedUsers.indexOf(userinfo.sub) === -1) {
+					this.log.warn(`handleOAuthCallback :: User ${userinfo.sub} not in allowed users list`, req);
+					return new Response('user not allowed', { status: 401 });
+				}
+			}
+
+			session.user = userinfo;
+			const redirect = session.redirect || this.getOrigin(req);
+			this.log.info(`handleOAuthCallback :: Authentication successful for user ${userinfo.sub}, redirecting to ${redirect}`, req);
+
+			return this.setSessionCookie(
+				new Response(null, {
+					status: config.redirect_code,
+					headers: { Location: redirect },
+				}),
+				session
+			);
+		} catch (error) {
+			this.log.error('handleOAuthCallback :: Error during token/userinfo exchange', error, req);
+			return new Response('authentication error', { status: 500 });
 		}
-
-		session.user = userinfo;
-
-		const redirect = session.redirect || this.getOrigin(req);
-
-		return this.setSessionCookie(
-			new Response(null, {
-				status: config.redirect_code,
-				headers: { Location: redirect },
-			}),
-			session
-		);
 	}
 
 	getRedirectUri(req: Request): string {
-		return this.getOrigin(req) + '/_auth/callback';
+		const uri = this.getOrigin(req) + '/_auth/callback';
+		this.log.debug(`getRedirectUri :: Callback URI: ${uri}`, req);
+		return uri;
 	}
 
 	getOrigin(req: Request): string {
@@ -197,16 +220,20 @@ class ForwardAuth {
 		if (uri && host && proto) {
 			return new URL(`${proto}://${host}${uri}`);
 		}
+
+		this.log.debug('getForwardedUri :: Missing forwarded headers', req);
 		return null;
 	}
 
 	async fetchOIDCDiscoveryDocument(discoveryUrl: string): Promise<OIDCDiscoveryDocument | null> {
+		this.log.debug(`fetchOIDCDiscoveryDocument :: Fetching discovery document from ${discoveryUrl}`);
 		try {
 			// Check cache first (cache for 1 hour)
 			const now = this.unixtime();
 			const cachedTime = this.discoveryCacheTime.get(discoveryUrl) || 0;
 
 			if (this.discoveryCache.has(discoveryUrl) && now - cachedTime < 3600) {
+				this.log.debug(`fetchOIDCDiscoveryDocument :: Using cached discovery document for ${discoveryUrl}`);
 				return this.discoveryCache.get(discoveryUrl) || null;
 			}
 
@@ -216,14 +243,16 @@ class ForwardAuth {
 				fullUrl = discoveryUrl.endsWith('/') ? `${discoveryUrl}.well-known/openid-configuration` : `${discoveryUrl}/.well-known/openid-configuration`;
 			}
 
+			this.log.debug(`fetchOIDCDiscoveryDocument :: Fetching from ${fullUrl}`);
 			const response = await fetch(fullUrl);
 
 			if (!response.ok) {
-				this.log.error(`Failed to fetch OIDC discovery document: ${response.status} ${response.statusText}`);
+				this.log.error(`fetchOIDCDiscoveryDocument :: Failed to fetch: ${response.status} ${response.statusText}`);
 				return null;
 			}
 
 			const document = (await response.json()) as OIDCDiscoveryDocument;
+			this.log.debug(`fetchOIDCDiscoveryDocument :: Successfully fetched discovery document from ${discoveryUrl}`);
 
 			// Cache the result
 			this.discoveryCache.set(discoveryUrl, document);
@@ -231,12 +260,13 @@ class ForwardAuth {
 
 			return document;
 		} catch (error) {
-			this.log.error('Error fetching OIDC discovery document', error);
+			this.log.error('fetchOIDCDiscoveryDocument :: Error fetching document', error);
 			return null;
 		}
 	}
 
 	getQueryConfig(query: Record<string, string>): Config {
+		this.log.debug(`getQueryConfig :: Processing query parameters for config override: ${JSON.stringify(query)}`);
 		const config = { ...this.config };
 
 		if (query.client_id) config.client_id = query.client_id;
@@ -256,25 +286,33 @@ class ForwardAuth {
 	}
 
 	async getConfigWithDiscovery(query: Record<string, string>): Promise<Config> {
+		this.log.debug('getConfigWithDiscovery :: Getting configuration with potential discovery');
 		const config = this.getQueryConfig(query);
 
 		// If discovery_url is provided, try to fetch OIDC endpoints
 		if (config.discovery_url) {
+			this.log.info(`getConfigWithDiscovery :: Using discovery URL: ${config.discovery_url}`);
 			const discoveryDoc = await this.fetchOIDCDiscoveryDocument(config.discovery_url);
 
 			if (discoveryDoc) {
+				this.log.debug('getConfigWithDiscovery :: Successfully retrieved discovery document');
 				// Only override if values are not explicitly provided in query
 				if (!query.authorize_url && discoveryDoc.authorization_endpoint) {
 					config.authorize_url = discoveryDoc.authorization_endpoint;
+					this.log.debug(`getConfigWithDiscovery :: Using discovered authorize_url: ${config.authorize_url}`);
 				}
 
 				if (!query.token_url && discoveryDoc.token_endpoint) {
 					config.token_url = discoveryDoc.token_endpoint;
+					this.log.debug(`getConfigWithDiscovery :: Using discovered token_url: ${config.token_url}`);
 				}
 
 				if (!query.userinfo_url && discoveryDoc.userinfo_endpoint) {
 					config.userinfo_url = discoveryDoc.userinfo_endpoint;
+					this.log.debug(`getConfigWithDiscovery :: Using discovered userinfo_url: ${config.userinfo_url}`);
 				}
+			} else {
+				this.log.warn(`getConfigWithDiscovery :: Failed to retrieve discovery document from ${config.discovery_url}`);
 			}
 		}
 
@@ -282,8 +320,12 @@ class ForwardAuth {
 	}
 
 	async getSession(req: Request): Promise<Session> {
+		this.log.debug('getSession :: Retrieving session from cookies', req);
 		const cookieHeader = req.headers.get('cookie');
-		if (!cookieHeader) return {};
+		if (!cookieHeader) {
+			this.log.debug('getSession :: No cookie header found', req);
+			return {};
+		}
 
 		const cookies = Object.fromEntries(
 			cookieHeader.split(';').map((cookie) => {
@@ -293,23 +335,34 @@ class ForwardAuth {
 		);
 
 		const cookie = cookies[this.config.cookie_name];
-		if (!cookie) return {};
+		if (!cookie) {
+			this.log.debug(`getSession :: Cookie ${this.config.cookie_name} not found`, req);
+			return {};
+		}
 
 		try {
 			const parts = cookie.split('.');
-			if (parts.length !== 2) return {};
+			if (parts.length !== 2) {
+				this.log.warn('getSession :: Invalid cookie format', req);
+				return {};
+			}
 
 			if (this.cookieJar.verify(parts[0], parts[1])) {
-				return JSON.parse(Buffer.from(parts[0], 'base64url').toString());
+				const session = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
+				this.log.debug(`getSession :: Valid session found${session.user ? ` for user ${session.user.sub}` : ''}`, req);
+				return session;
+			} else {
+				this.log.warn('getSession :: Invalid cookie signature', req);
 			}
 		} catch (e) {
-			this.log.error('Error parsing session cookie', e);
+			this.log.error('getSession :: Error parsing session cookie', e, req);
 		}
 
 		return {};
 	}
 
 	setSessionCookie(response: Response, session: Session): Response {
+		this.log.debug(`setSessionCookie :: Setting session cookie${session.user ? ` for user ${session.user.sub}` : ''}`);
 		const sessionEncoded = Buffer.from(JSON.stringify(session)).toString('base64url');
 		const signature = this.cookieJar.sign(sessionEncoded);
 		const cookie = `${this.config.cookie_name}=${sessionEncoded}.${signature}; Max-Age=${this.config.cookie_age}; Path=/; HttpOnly; SameSite=Lax`;
@@ -325,6 +378,7 @@ class ForwardAuth {
 
 export function runForwardAuth(config: Config) {
 	const log = new Log();
+	log.setLogLevel(config.log_level);
 	const forwardAuth = new ForwardAuth(config, log);
 
 	const server = Bun.serve({

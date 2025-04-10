@@ -17,6 +17,7 @@ const config = {
 	scopes: 'test',
 	cookie_name: '__auth',
 	cookie_age: 604800,
+	log_level: 4,
 };
 
 // Initialize the forward auth service
