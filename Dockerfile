@@ -1,10 +1,9 @@
-FROM node:17-alpine
+FROM oven/bun:1.2.9-alpine
 
-MAINTAINER mkuhlmann
+LABEL AUTHOR mkuhlmann
 
 WORKDIR /app
 COPY . .
-RUN npm install --only=production
 
 EXPOSE 8080
-CMD ["npm", "run", "docker"]
+CMD ["bun", "start"]
