@@ -18,7 +18,7 @@ The following options are available:
 | ------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------- |
 | listen_host   | host to bind                                                                                                                      |          | `0.0.0.0`         |
 | listen_port   | port to bind                                                                                                                      |          | `8080`            |
-| app_key       | keys for cookie signing, passed to koajs                                                                                          | ✔        |
+| app_key       | keys for cookie signing                                                                                                           | ✔        |
 | cookie_name   | Name of Cookie                                                                                                                    |          | `__auth`          |
 | cookie_age    | Max age of cookie in seconds                                                                                                      |          | `604800` (7 days) |
 | redirect_code | HTTP status code to return, when redirecting<sup>[because](http://nginx.org/en/docs/http/ngx_http_auth_request_module.html)</sup> |          | 302               |
@@ -71,7 +71,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
 
   forward_auth:
-    image: mkuhlmann/forward-auth
+    image: ghcr.io/mkuhlmann/forward-auth
     restart: unless-stopped
     environment:
       - APP_KEY=CHANGE_ME
