@@ -211,7 +211,11 @@ class ForwardAuth {
 				session
 			);
 		} catch (error) {
-			this.log.error('handleOAuthCallback :: Error during token/userinfo exchange', error, req);
+			this.log.error(
+				'handleOAuthCallback :: Error during token/userinfo exchange',
+				error instanceof Error ? { message: error.message, stack: error.stack } : error,
+				req
+			);
 			return new Response('authentication error', { status: 500 });
 		}
 	}
@@ -276,7 +280,10 @@ class ForwardAuth {
 
 			return document;
 		} catch (error) {
-			this.log.error('fetchOIDCDiscoveryDocument :: Error fetching document', error);
+			this.log.error(
+				'fetchOIDCDiscoveryDocument :: Error fetching document',
+				error instanceof Error ? { message: error.message, stack: error.stack } : error
+			);
 			return null;
 		}
 	}
@@ -378,7 +385,7 @@ class ForwardAuth {
 				this.log.warn('getSession :: Invalid cookie signature', req);
 			}
 		} catch (e) {
-			this.log.error('getSession :: Error parsing session cookie', e, req);
+			this.log.error('getSession :: Error parsing session cookie', e instanceof Error ? { message: e.message, stack: e.stack } : e, req);
 		}
 
 		return null;
