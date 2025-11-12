@@ -173,7 +173,18 @@ class ForwardAuth {
 				},
 			});
 
+			if (!userinfoResponse.ok) {
+				this.log.error(`handleOAuthCallback :: Failed to fetch user info: ${userinfoResponse.status} ${userinfoResponse.statusText}`, req);
+				return new Response('failed to fetch user info', { status: 401 });
+			}
+
 			const userinfo: User = await userinfoResponse.json();
+
+			if (!userinfo || !userinfo.sub) {
+				this.log.error('handleOAuthCallback :: Invalid user info structure: missing sub field', req);
+				return new Response('invalid user info', { status: 401 });
+			}
+
 			this.log.debug(`handleOAuthCallback :: User info retrieved, user=${userinfo.sub}`, req);
 
 			if (config.allowed_users) {
