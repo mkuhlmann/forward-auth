@@ -28,6 +28,7 @@ interface Config {
 	scopes?: string;
 	cookie_name: string;
 	cookie_age: number;
+	cookie_insecure: boolean;
 	log_level: LogLevel;
 }
 
@@ -365,7 +366,8 @@ class ForwardAuth {
 		this.log.debug(`setSessionCookie :: Setting session cookie${session.user ? ` for user ${session.user.sub}` : ''}`);
 		const sessionEncoded = Buffer.from(JSON.stringify(session)).toString('base64url');
 		const signature = this.cookieJar.sign(sessionEncoded);
-		const cookie = `${this.config.cookie_name}=${sessionEncoded}.${signature}; Max-Age=${this.config.cookie_age}; Path=/; HttpOnly; SameSite=Lax`;
+		const secureFlag = this.config.cookie_insecure ? '' : '; Secure';
+		const cookie = `${this.config.cookie_name}=${sessionEncoded}.${signature}; Max-Age=${this.config.cookie_age}; Path=/; HttpOnly; SameSite=Lax${secureFlag}`;
 
 		response.headers.append('Set-Cookie', cookie);
 		return response;

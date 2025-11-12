@@ -25,6 +25,7 @@ function parseLogLevel(level: string | undefined): LogLevel {
 let appKey = process.env.APP_KEY;
 if (!appKey || appKey.length < 32) {
 	console.warn(`Generated random APP_KEY as APP_KEY is missing or too short. It must be at least 32 characters long.`);
+	console.warn(`Not that this will invalidate all existing cookies on restart.`);
 	appKey = randomBytes(32).toString('hex');
 }
 
@@ -48,6 +49,7 @@ const config = {
 
 	cookie_name: process.env.COOKIE_NAME || '__auth',
 	cookie_age: parseInt(process.env.COOKIE_AGE || '604800'), // 7 days
+	cookie_insecure: process.env.COOKIE_INSECURE === 'true',
 
 	log_level: parseLogLevel(process.env.LOG_LEVEL),
 };
