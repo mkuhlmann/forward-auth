@@ -1,5 +1,6 @@
 import { runForwardAuth } from './ForwardAuth';
 import { LogLevel } from './Log';
+import { randomBytes } from 'crypto';
 
 // Parse log level from environment variable
 function parseLogLevel(level: string | undefined): LogLevel {
@@ -21,6 +22,12 @@ function parseLogLevel(level: string | undefined): LogLevel {
 	}
 }
 
+let appKey = process.env.APP_KEY;
+if (!appKey || appKey.length < 32) {
+	console.warn(`Generated random APP_KEY as APP_KEY is missing or too short. It must be at least 32 characters long.`);
+	appKey = randomBytes(32).toString('hex');
+}
+
 // Default config
 const config = {
 	listen_host: process.env.LISTEN_HOST || '0.0.0.0',
@@ -28,7 +35,7 @@ const config = {
 
 	redirect_code: parseInt(process.env.REDIRECT_CODE || '302'),
 
-	app_key: process.env.APP_KEY || '',
+	app_key: appKey,
 	authorize_url: process.env.AUTHORIZE_URL || '',
 	token_url: process.env.TOKEN_URL || '',
 	userinfo_url: process.env.USERINFO_URL || '',
