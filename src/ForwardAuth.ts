@@ -11,6 +11,7 @@ interface Session {
 	user?: User;
 	state?: string;
 	redirect?: string;
+	expiresAt: number; // Unix timestamp in seconds
 }
 
 interface Config {
@@ -66,7 +67,7 @@ class ForwardAuth {
 		this.log.debug('handleAuthCheck :: Checking authentication status', req);
 		const session = await this.getSession(req);
 
-		if (session.user && session.user.sub) {
+		if (session && session.user && session.user.sub) {
 			// user is logged in, return 200 and set headers
 			const user = session.user;
 			this.log.debug(`handleAuthCheck :: User authenticated, id=${user.sub}`, req);
@@ -86,11 +87,11 @@ class ForwardAuth {
 		} else {
 			// user is not logged in, redirect to oauth endpoint
 			this.log.debug('handleAuthCheck :: User not authenticated, redirecting to OAuth', req);
-			return this.handleOAuthRedirect(req, url, session);
+			return this.handleOAuthRedirect(req, url);
 		}
 	}
 
-	async handleOAuthRedirect(req: Request, url: URL, session: Session): Promise<Response> {
+	async handleOAuthRedirect(req: Request, url: URL): Promise<Response> {
 		this.log.debug('handleOAuthRedirect :: Starting OAuth redirection flow', req);
 		const query = Object.fromEntries(url.searchParams);
 		const config = await this.getConfigWithDiscovery(query);
@@ -105,7 +106,10 @@ class ForwardAuth {
 
 		const redirectUri = this.getRedirectUri(req);
 
-		session.state = state;
+		const session: Session = {
+			state,
+			expiresAt: this.unixtime() + this.config.cookie_age,
+		};
 
 		const forwardedUri = this.getForwardedUri(req);
 		if (forwardedUri) {
@@ -135,7 +139,7 @@ class ForwardAuth {
 			return new Response('invalid code', { status: 400 });
 		}
 
-		if (browserQuery.state != session.state) {
+		if (!session || browserQuery.state != session.state) {
 			const ip = req.headers.get('x-forwarded-for') || 'unknown';
 			this.log.warn(`handleOAuthCallback :: Invalid state from IP ${ip}`, req);
 			return new Response('invalid state', { status: 400 });
@@ -331,12 +335,12 @@ class ForwardAuth {
 		return config;
 	}
 
-	async getSession(req: Request): Promise<Session> {
+	async getSession(req: Request): Promise<Session | null> {
 		this.log.debug('getSession :: Retrieving session from cookies', req);
 		const cookieHeader = req.headers.get('cookie');
 		if (!cookieHeader) {
 			this.log.debug('getSession :: No cookie header found', req);
-			return {};
+			return null;
 		}
 
 		const cookies = Object.fromEntries(
@@ -349,18 +353,25 @@ class ForwardAuth {
 		const cookie = cookies[this.config.cookie_name];
 		if (!cookie) {
 			this.log.debug(`getSession :: Cookie ${this.config.cookie_name} not found`, req);
-			return {};
+			return null;
 		}
 
 		try {
 			const parts = cookie.split('.');
 			if (parts.length !== 2) {
 				this.log.warn('getSession :: Invalid cookie format', req);
-				return {};
+				return null;
 			}
 
 			if (this.cookieJar.verify(parts[0], parts[1])) {
 				const session = JSON.parse(Buffer.from(parts[0], 'base64url').toString());
+
+				// Validate server-side expiration
+				if (session.expiresAt && session.expiresAt < this.unixtime()) {
+					this.log.warn(`getSession :: Session expired${session.user ? ` for user ${session.user.sub}` : ''}`, req);
+					return null;
+				}
+
 				this.log.debug(`getSession :: Valid session found${session.user ? ` for user ${session.user.sub}` : ''}`, req);
 				return session;
 			} else {
@@ -370,11 +381,15 @@ class ForwardAuth {
 			this.log.error('getSession :: Error parsing session cookie', e, req);
 		}
 
-		return {};
+		return null;
 	}
 
 	setSessionCookie(response: Response, session: Session): Response {
 		this.log.debug(`setSessionCookie :: Setting session cookie${session.user ? ` for user ${session.user.sub}` : ''}`);
+
+		// Set server-side expiration timestamp
+		session.expiresAt = this.unixtime() + this.config.cookie_age;
+
 		const sessionEncoded = Buffer.from(JSON.stringify(session)).toString('base64url');
 		const signature = this.cookieJar.sign(sessionEncoded);
 		const secureFlag = this.config.cookie_insecure ? '' : '; Secure';
