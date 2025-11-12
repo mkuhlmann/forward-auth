@@ -1,4 +1,4 @@
-import { createHmac } from 'crypto';
+import { createHmac, timingSafeEqual } from 'crypto';
 
 export class CookieJar {
 	private key: string;
@@ -12,6 +12,14 @@ export class CookieJar {
 	}
 
 	verify(value: string, signature: string): boolean {
-		return this.sign(value) === signature;
+		try {
+			const correctSignature = this.sign(value);
+			const a = Buffer.from(correctSignature, 'base64url');
+			const b = Buffer.from(signature, 'base64url');
+			// Use timingSafeEqual to prevent timing attacks
+			return a.length === b.length && timingSafeEqual(a, b);
+		} catch {
+			return false;
+		}
 	}
 }
