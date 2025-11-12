@@ -14,24 +14,24 @@ Please use UPPER_CASE in environment variables, lower_case otherwise. Note that 
 
 The following options are available:
 
-| Config Key      | Description                                                                                                                       | Required | Default                   |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------- |
-| listen_host     | host to bind                                                                                                                      |          | `0.0.0.0`                 |
-| listen_port     | port to bind                                                                                                                      |          | `8080`                    |
-| app_key         | keys for cookie signing                                                                                                           |          | random 32-byte hex string |
-| cookie_name     | Name of Cookie                                                                                                                    |          | `__auth`                  |
-| cookie_age      | Max age of cookie in seconds                                                                                                      |          | `604800` (7 days)         |
-| cookie_insecure | Allow cookies over insecure (HTTP) connections. Set to `true` for development, should be `false` in production                    |          | `false`                   |
-| redirect_code   | HTTP status code to return, when redirecting<sup>[because](http://nginx.org/en/docs/http/ngx_http_auth_request_module.html)</sup> |          | 302                       |
-| discovery_url   | OpenID Connect Discovery URL, used to auto-configure authorize_url, token_url and userinfo_url                                    |          |                           |
-| authorize_url   | OAuth Authorization Request URL ([spec](https://tools.ietf.org/html/rfc6749#section-4.1.1))                                       | ✔\*      |                           |
-| token_url       | OAuth Access Token Endpoint                                                                                                       | ✔\*      |                           |
-| userinfo_url    | OpenID Connect UserInfo endpoint, must include `sub` field                                                                        | ✔\*      |                           |
-| client_id       | OAuth Client Id                                                                                                                   | ✔        |                           |
-| client_secret   | OAuth Client Secret                                                                                                               | ✔        |                           |
-| allowed_users   | Comma-seperated list of allowed `sub`s, empty = anyone                                                                            |          | `[]`                      |
-| scopes          | Comma-seperated OAuth Scopes                                                                                                      |          | `id`                      |
-| log_level       | Log level (DEBUG, INFO, WARN, ERROR, NONE)                                                                                        |          | `INFO`                    |
+| Config Key      | Description                                                                                                                       | Required | Default           |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------- |
+| listen_host     | host to bind                                                                                                                      |          | `0.0.0.0`         |
+| listen_port     | port to bind                                                                                                                      |          | `8080`            |
+| app_key         | keys for cookie signing                                                                                                           | ✔        | min. 32 byte      |
+| cookie_name     | Name of Cookie                                                                                                                    |          | `__auth`          |
+| cookie_age      | Max age of cookie in seconds                                                                                                      |          | `604800` (7 days) |
+| cookie_insecure | Allow cookies over insecure (HTTP) connections. Set to `true` for development, should be `false` in production                    |          | `false`           |
+| redirect_code   | HTTP status code to return, when redirecting<sup>[because](http://nginx.org/en/docs/http/ngx_http_auth_request_module.html)</sup> |          | 302               |
+| discovery_url   | OpenID Connect Discovery URL, used to auto-configure authorize_url, token_url and userinfo_url                                    |          |                   |
+| authorize_url   | OAuth Authorization Request URL ([spec](https://tools.ietf.org/html/rfc6749#section-4.1.1))                                       | ✔\*      |                   |
+| token_url       | OAuth Access Token Endpoint                                                                                                       | ✔\*      |                   |
+| userinfo_url    | OpenID Connect UserInfo endpoint, must include `sub` field                                                                        | ✔\*      |                   |
+| client_id       | OAuth Client Id                                                                                                                   | ✔        |                   |
+| client_secret   | OAuth Client Secret                                                                                                               | ✔        |                   |
+| allowed_users   | Comma-seperated list of allowed `sub`s, empty = anyone                                                                            |          | `[]`              |
+| scopes          | Comma-seperated OAuth Scopes                                                                                                      |          | `id`              |
+| log_level       | Log level (DEBUG, INFO, WARN, ERROR, NONE)                                                                                        |          | `INFO`            |
 
 \* You can either provide individual URLs (authorize_url, token_url, userinfo_url) OR use discovery_url to automatically fetch them from an OpenID Connect provider's discovery document.
 
