@@ -37,8 +37,7 @@ The following options are available:
 
 When client is authenticated, forward_auth passes X-Auth-User with the sub and X-Auth-Info with the json encoded userinfo_url response, those may be passed to your application via the reverse proxy (see example below).
 
-> [!WARNING]
-> **Security Note on `X-Forwarded-*` Headers**
+> [!WARNING] > **Security Note on `X-Forwarded-*` Headers**
 > This service relies on `X-Forwarded-Host`, `X-Forwarded-Proto`, and `X-Forwarded-Uri` headers to construct redirect URLs and identify the original request. It is critical that your reverse proxy is configured to **overwrite** these headers and not trust the values provided by incoming client requests. Failure to do so can lead to open redirect vulnerabilities. The provided examples for Traefik and Nginx demonstrate a secure configuration.
 
 ## OpenID Connect Discovery
