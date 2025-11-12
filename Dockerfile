@@ -1,15 +1,12 @@
-FROM oven/bun:1.3.1-alpine
+FROM oven/bun:1.3.2-alpine
 
 LABEL AUTHOR mkuhlmann
 
-# Create a non-root user with UID 1000
-RUN adduser -D -u 1000 -h /app appuser
-
 WORKDIR /app
-COPY --chown=appuser:appuser . .
+COPY --chown=bun:bun . .
 
 # Switch to non-root user
-USER appuser
+USER bun
 
 EXPOSE 8080
 CMD ["bun", "start"]
