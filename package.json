@@ -7,8 +7,8 @@
 	},
 	"dependencies": {},
 	"devDependencies": {
-		"bun-types": "1.3.12",
-		"typescript": "^6.0.2"
+		"bun-types": "1.4.4",
+		"typescript": "^7.0.2"
 	},
 	"name": "forward-auth",
 	"version": "2.0.0"
