@@ -4,13 +4,12 @@
 	"scripts": {
 		"start": "bun src/index.ts",
 		"test": "bun test",
-		"typecheck": "tsc"
+		"build": "bun build src/index.ts --target=bun --production --bytecode --sourcemap=linked --outdir=dist --entry-naming=server.js"
 	},
 	"dependencies": {},
-	"devDependencies": {
-		"bun-types": "1.4.4",
-		"typescript": "^7.0.2"
-	},
 	"name": "forward-auth",
-	"version": "2.0.0"
+	"version": "2.0.0",
+	"devDependencies": {
+		"bun-types": "1.4.4"
+	}
 }

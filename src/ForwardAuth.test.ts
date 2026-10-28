@@ -1,4 +1,4 @@
-import { describe, expect, beforeAll, afterAll, test, beforeEach } from 'bun:test';
+import { describe, expect, beforeAll, afterAll, test, beforeEach, setSystemTime } from 'bun:test';
 import { Server } from 'bun';
 import { runForwardAuth } from './ForwardAuth';
 
@@ -17,6 +17,7 @@ const config = {
 	scopes: 'test',
 	cookie_name: '__auth',
 	cookie_age: 604800,
+	session_max_age: 604800,
 	callback_centralised: true,
 	log_level: 4,
 };
@@ -87,6 +88,7 @@ const testFetch = async (url: string, options: RequestInit = {}): Promise<Respon
 // Mock OAuth server state
 let currentUser = 'testOkUser';
 let currentName = 'Test User';
+let extraClaims: Record<string, unknown> = {};
 let mockOAuthServer: Server<unknown>;
 
 // Setup mock OAuth server
@@ -106,7 +108,7 @@ beforeAll(() => {
 			} else if (url.pathname === '/userinfo') {
 				const authHeader = req.headers.get('authorization') || '';
 				const token = authHeader.split(' ')[1];
-				return new Response(JSON.stringify({ name: currentName, sub: currentUser }), {
+				return new Response(JSON.stringify({ name: currentName, sub: currentUser, ...extraClaims }), {
 					headers: { 'Content-Type': 'application/json' },
 				});
 			} else if (url.pathname === '/.well-known/openid-configuration') {
@@ -123,7 +125,7 @@ beforeAll(() => {
 					}),
 					{
 						headers: { 'Content-Type': 'application/json' },
-					}
+					},
 				);
 			} else if (url.pathname === '/discovery-login') {
 				return new Response('/discovery-login');
@@ -134,7 +136,7 @@ beforeAll(() => {
 			} else if (url.pathname === '/discovery-userinfo') {
 				const authHeader = req.headers.get('authorization') || '';
 				const token = authHeader.split(' ')[1];
-				return new Response(JSON.stringify({ name: currentName, sub: currentUser }), {
+				return new Response(JSON.stringify({ name: currentName, sub: currentUser, ...extraClaims }), {
 					headers: { 'Content-Type': 'application/json' },
 				});
 			}
@@ -371,7 +373,7 @@ describe('OIDC Discovery functionality', () => {
 						}),
 						{
 							headers: { 'Content-Type': 'application/json' },
-						}
+						},
 					);
 				}
 				return new Response('Not Found', { status: 404 });
@@ -415,6 +417,7 @@ describe('Centralized callback mode', () => {
 		scopes: 'test',
 		cookie_name: '__auth',
 		cookie_age: 604800,
+		session_max_age: 604800,
 		cookie_insecure: true,
 		callback_port: 8083,
 		callback_url: 'http://127.0.0.1:8083/callback',
@@ -573,10 +576,7 @@ describe('Centralized callback mode', () => {
 		expect(stateParam).toBeTruthy();
 
 		// Step 3: Hit the callback server (simulating the browser following the OAuth redirect)
-		const cbResponse = await fetch(
-			`http://127.0.0.1:8083/callback?code=test&state=${stateParam}`,
-			{ redirect: 'manual' },
-		);
+		const cbResponse = await fetch(`http://127.0.0.1:8083/callback?code=test&state=${stateParam}`, { redirect: 'manual' });
 		expect(cbResponse.status).toBe(302);
 		const handoffRedirect = cbResponse.headers.get('location') || '';
 		// Should redirect back to the originating service's /_auth/callback
@@ -612,10 +612,7 @@ describe('Centralized callback mode', () => {
 
 		// Step 2: callback server processes with a disallowed user
 		currentUser = 'testFailUser';
-		const cbResponse = await fetch(
-			`http://127.0.0.1:8083/callback?code=test&state=${stateParam}`,
-			{ redirect: 'manual' },
-		);
+		const cbResponse = await fetch(`http://127.0.0.1:8083/callback?code=test&state=${stateParam}`, { redirect: 'manual' });
 		expect(cbResponse.status).toBe(302);
 		const handoffParam = cbResponse.headers.get('location')?.match(/[?&]handoff=([^&]+)/)?.[1] || '';
 
@@ -687,7 +684,12 @@ describe('Session hardening', () => {
 
 	afterAll(() => {
 		currentName = 'Test User';
+		extraClaims = {};
+		setSystemTime();
 	});
+
+	const DAY = 24 * 60 * 60 * 1000;
+	const setCookieOf = (response: Response) => response.headers.get('set-cookie') || '';
 
 	test('session cookie is rejected on a different host', async () => {
 		await login('app');
@@ -734,5 +736,73 @@ describe('Session hardening', () => {
 	test('auth responses are not cacheable', async () => {
 		const response = await testFetch('http://127.0.0.1:8080/auth', { headers: { 'x-forwarded-uri': '/' } });
 		expect(response.headers.get('cache-control')).toBe('no-store');
+	});
+
+	test('session cookie renewal is capped at session_max_age after login', async () => {
+		await login();
+		setSystemTime(new Date(Date.now() + 4 * DAY));
+		const renewed = await testFetch('http://127.0.0.1:8080/auth');
+		expect(renewed.status).toBe(200);
+		const maxAge = Number(setCookieOf(renewed).match(/Max-Age=(\d+)/)?.[1]);
+		expect(maxAge).toBeLessThanOrEqual(3 * 24 * 60 * 60);
+		expect(maxAge).toBeGreaterThan(3 * 24 * 60 * 60 - 60);
+		setSystemTime();
+	});
+
+	test('session older than session_max_age requires a new login', async () => {
+		await login();
+		setSystemTime(new Date(Date.now() + 8 * DAY));
+		const response = await testFetch('http://127.0.0.1:8080/auth', { headers: { 'x-forwarded-uri': '/' } });
+		expect(response.status).toBe(302);
+		expect(response.headers.get('location')?.startsWith('http://127.0.0.1:8081/login')).toBe(true);
+		setSystemTime();
+	});
+
+	test('logout clears the session cookie and redirects to the service root', async () => {
+		await login();
+		const response = await testFetch('http://127.0.0.1:8080/auth', { headers: { 'x-forwarded-uri': '/_auth/logout' } });
+		expect(response.status).toBe(302);
+		expect(response.headers.get('location')).toBe('http://app/');
+		expect(setCookieOf(response)).toStartWith('__auth=; Max-Age=0;');
+
+		const afterLogout = await testFetch('http://127.0.0.1:8080/auth', { headers: { 'x-forwarded-uri': '/' } });
+		expect(afterLogout.status).toBe(302);
+	});
+
+	test('logout redirects to logout_url when configured', async () => {
+		await login();
+		const response = await testFetch('http://127.0.0.1:8080/auth?logout_url=https://idp.example/logout', {
+			headers: { 'x-forwarded-uri': '/_auth/logout' },
+		});
+		expect(response.headers.get('location')).toBe('https://idp.example/logout');
+	});
+
+	test('large user info is trimmed to keep the session cookie within 4096 bytes', async () => {
+		extraClaims = { groups: Array.from({ length: 500 }, (_, i) => `group-${i}`), email: 'ok@example.com' };
+		await login();
+		const response = await testFetch('http://127.0.0.1:8080/auth');
+		expect(response.status).toBe(200);
+		expect(new TextEncoder().encode(setCookieOf(response)).length).toBeLessThanOrEqual(4096);
+
+		const info = JSON.parse(response.headers.get('x-auth-info') || '{}');
+		expect(info.sub).toBe('testOkUser');
+		expect(info.email).toBe('ok@example.com');
+		expect(info.groups).toBeUndefined();
+		extraClaims = {};
+	});
+
+	test('an overly long redirect destination does not break the login', async () => {
+		cookieJar = new TestCookieJar();
+		const authResponse = await testFetch('http://127.0.0.1:8080/auth', {
+			headers: { 'x-forwarded-uri': '/' + 'a'.repeat(5000) },
+		});
+		expect(new TextEncoder().encode(setCookieOf(authResponse)).length).toBeLessThanOrEqual(4096);
+
+		const oauthState = authResponse.headers.get('location')?.match(/state=([\w_-]+)$/i)?.[1] || '';
+		const callbackResponse = await testFetch('http://127.0.0.1:8080/auth', {
+			headers: { 'x-forwarded-uri': `/_auth/callback?code=test&state=${oauthState}` },
+		});
+		expect(callbackResponse.status).toBe(302);
+		expect(callbackResponse.headers.get('location')).toBe('http://app');
 	});
 });

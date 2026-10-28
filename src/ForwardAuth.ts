@@ -11,6 +11,7 @@ interface Session {
 	state?: string;
 	redirect?: string;
 	aud: string; // origin (proto://host) the session was issued for
+	iat?: number; // Unix timestamp of the login, bounds the session to session_max_age
 	exp: number; // Unix timestamp in seconds
 }
 
@@ -29,11 +30,13 @@ interface Config {
 	scopes?: string;
 	cookie_name: string;
 	cookie_age: number;
+	session_max_age: number;
 	cookie_insecure?: boolean;
 	callback_port?: number;
 	callback_url?: string;
 	callback_centralised: boolean;
 	callback_allowed_domains?: string;
+	logout_url?: string;
 	log_level: LogLevel;
 }
 
@@ -78,6 +81,8 @@ const HANDOFF_TTL = 2 * 60; // time between callback server redirect and handoff
 const FETCH_TIMEOUT_MS = 10_000;
 const DISCOVERY_CACHE_TTL = 3600;
 const DISCOVERY_CACHE_MAX_ENTRIES = 100;
+// Browsers drop cookies larger than 4096 bytes, which would cause an endless login loop
+const MAX_COOKIE_BYTES = 4096;
 
 export function isValidRedirectCode(code: number): boolean {
 	return Number.isInteger(code) && ((code >= 300 && code <= 399) || code === 401 || code === 403);
@@ -140,7 +145,11 @@ class ForwardAuth {
 		this.log.debug('handleAuthCheck :: Checking authentication status', req);
 		const session = await this.getSession(req);
 
-		if (session && session.user && session.user.sub) {
+		if (session && session.user && session.user.sub && this.isSessionExpired(session)) {
+			// sliding renewal keeps the cookie alive, but every login must be redone after session_max_age
+			this.log.info(`handleAuthCheck :: Session of user ${session.user.sub} exceeded max age, re-authenticating`, req);
+			return this.handleOAuthRedirect(req, url);
+		} else if (session && session.user && session.user.sub) {
 			const user = session.user;
 
 			// allowed_users may differ per protected service (query override), so it must be
@@ -158,7 +167,7 @@ class ForwardAuth {
 				'X-Auth-User': user.sub,
 				'X-Forwarded-User': user.sub,
 				// header values must be latin1, so escape everything else; the result is still valid JSON
-				'X-Auth-Info': JSON.stringify(user).replace(/[\u007f-￿]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')),
+				'X-Auth-Info': JSON.stringify(user).replace(/[\u007f-\uffff]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0')),
 			});
 
 			return this.setSessionCookie(
@@ -281,6 +290,7 @@ class ForwardAuth {
 		}
 
 		session.user = userinfo;
+		session.iat = this.unixtime();
 		const redirect = session.redirect || this.getOrigin(req);
 		delete session.redirect;
 		this.log.info(`handleOAuthCallback :: Authentication successful for user ${userinfo.sub}, redirecting to ${redirect}`, req);
@@ -340,6 +350,7 @@ class ForwardAuth {
 		}
 
 		session.user = userinfo;
+		session.iat = this.unixtime();
 		const redirect = session.redirect || this.getOrigin(req);
 		delete session.redirect;
 		this.log.info(`handleHandoff :: Handoff successful for user ${userinfo.sub}, redirecting to ${redirect}`, req);
@@ -351,6 +362,22 @@ class ForwardAuth {
 			}),
 			session,
 		);
+	}
+
+	// Clear the session cookie and redirect to logout_url (e.g. the IdP's logout page) or the service root.
+	handleLogout(req: Request, url: URL): Response {
+		const config = this.getQueryConfig(Object.fromEntries(url.searchParams));
+		const redirect = config.logout_url || this.getOrigin(req) + '/';
+		this.log.info(`handleLogout :: Logging out, redirecting to ${redirect}`, req);
+
+		const secureFlag = this.config.cookie_insecure ? '' : '; Secure';
+		return new Response(null, {
+			status: config.redirect_code,
+			headers: {
+				Location: redirect,
+				'Set-Cookie': `${this.config.cookie_name}=; Max-Age=0; Path=/; HttpOnly; SameSite=Lax${secureFlag}`,
+			},
+		});
 	}
 
 	// Handle an OAuth callback on the secondary (centralized) callback server.
@@ -580,6 +607,7 @@ class ForwardAuth {
 		if (query.token_url) config.token_url = query.token_url;
 		if (query.userinfo_url) config.userinfo_url = query.userinfo_url;
 		if (query.discovery_url) config.discovery_url = query.discovery_url;
+		if (query.logout_url) config.logout_url = query.logout_url;
 
 		if (query.allowed_users) {
 			config.allowed_users = query.allowed_users;
@@ -668,17 +696,57 @@ class ForwardAuth {
 		return session;
 	}
 
+	isSessionExpired(session: Session): boolean {
+		return !session.iat || session.iat + this.config.session_max_age < this.unixtime();
+	}
+
 	setSessionCookie(response: Response, session: Session): Response {
 		this.log.debug(`setSessionCookie :: Setting session cookie${session.user ? ` for user ${session.user.sub}` : ''}`);
 
-		// Set server-side expiration timestamp
-		session.exp = this.unixtime() + this.config.cookie_age;
+		// Set server-side expiration timestamp: renewed on activity, but never beyond session_max_age after login
+		const now = this.unixtime();
+		session.exp = now + this.config.cookie_age;
+		if (session.user && session.iat) {
+			session.exp = Math.min(session.exp, session.iat + this.config.session_max_age);
+		}
 
-		const secureFlag = this.config.cookie_insecure ? '' : '; Secure';
-		const cookie = `${this.config.cookie_name}=${this.signToken('session', session)}; Max-Age=${this.config.cookie_age}; Path=/; HttpOnly; SameSite=Lax${secureFlag}`;
+		let cookie = this.buildSessionCookie(session, session.exp - now);
+		while (Buffer.byteLength(cookie) > MAX_COOKIE_BYTES) {
+			if (!this.shrinkSession(session)) {
+				this.log.error(`setSessionCookie :: Session cookie is ${Buffer.byteLength(cookie)} bytes and cannot be shrunk below ${MAX_COOKIE_BYTES}`);
+				break;
+			}
+			cookie = this.buildSessionCookie(session, session.exp - now);
+		}
 
 		response.headers.append('Set-Cookie', cookie);
 		return response;
+	}
+
+	private buildSessionCookie(session: Session, maxAge: number): string {
+		const secureFlag = this.config.cookie_insecure ? '' : '; Secure';
+		return `${this.config.cookie_name}=${this.signToken('session', session)}; Max-Age=${maxAge}; Path=/; HttpOnly; SameSite=Lax${secureFlag}`;
+	}
+
+	// Remove the least important data from a session that does not fit into a cookie:
+	// first the post-login redirect, then the largest user info claims (sub is always kept).
+	// Returns false when there is nothing left to remove.
+	private shrinkSession(session: Session): boolean {
+		if (session.redirect) {
+			this.log.warn('setSessionCookie :: Session too large for a cookie, dropping redirect destination');
+			delete session.redirect;
+			return true;
+		}
+
+		const user = session.user;
+		const claims = Object.keys(user ?? {}).filter((claim) => claim !== 'sub');
+		if (!user || claims.length === 0) return false;
+
+		const size = (claim: string) => (JSON.stringify(user[claim]) ?? '').length;
+		const largest = claims.reduce((a, b) => (size(a) >= size(b) ? a : b));
+		this.log.warn(`setSessionCookie :: Session too large for a cookie, dropping user info claim "${largest}" for user ${user.sub}`);
+		delete user[largest];
+		return true;
 	}
 
 	unixtime(): number {
@@ -718,12 +786,14 @@ export function runForwardAuth(config: Config) {
 		async fetch(req) {
 			const url = new URL(req.url);
 
-			// Check if this is an OAuth callback
+			// Check if this is an OAuth callback or a logout
 			const forwardedUri = forwardAuth.getForwardedUri(req);
 			if (forwardedUri && forwardedUri.pathname === '/_auth/callback') {
 				// We need code/handoff from the real URL the browser sends
 				const query = Object.fromEntries(forwardedUri.searchParams);
 				return noStore(await forwardAuth.handleOAuthCallback(query, req));
+			} else if (forwardedUri && forwardedUri.pathname === '/_auth/logout') {
+				return noStore(forwardAuth.handleLogout(req, url));
 			}
 			// Proceed to auth check
 			else if (url.pathname === '/auth') {

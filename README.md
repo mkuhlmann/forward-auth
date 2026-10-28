@@ -10,36 +10,44 @@ forward-auth can be configured in two ways, values are applied in following prio
 
 `environment variables < query params`
 
-Note that `LISTEN_HOST`, `LISTEN_PORT`, `APP_KEY`, `COOKIE_NAME`, `COOKIE_AGE`, `CALLBACK_PORT`, and `CALLBACK_URL` can only be set via environment variables, not query params.
+Note that `LISTEN_HOST`, `LISTEN_PORT`, `APP_KEY`, `COOKIE_NAME`, `COOKIE_AGE`, `SESSION_MAX_AGE`, `CALLBACK_PORT`, and `CALLBACK_URL` can only be set via environment variables, not query params.
 
 The following options are available:
 
-| Environment Variable | Description                                                                                                                       | Required | Default           |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------- |
-| `LISTEN_HOST`        | Host to bind                                                                                                                      |          | `0.0.0.0`         |
-| `LISTEN_PORT`        | Port to bind                                                                                                                      |          | `8080`            |
-| `APP_KEY`            | Key for cookie signing (min. 32 characters)                                                                                       | ✔        |                   |
-| `COOKIE_NAME`        | Name of the session cookie                                                                                                        |          | `__auth`          |
-| `COOKIE_AGE`         | Max age of cookie in seconds                                                                                                      |          | `604800` (7 days) |
-| `COOKIE_INSECURE`    | Allow cookies over insecure (HTTP) connections. Set to `true` for development, should be `false` in production                    |          | `false`           |
-| `REDIRECT_CODE`      | HTTP status code to return when redirecting<sup>[because](http://nginx.org/en/docs/http/ngx_http_auth_request_module.html)</sup>  |          | `302`             |
-| `DISCOVERY_URL`      | OpenID Connect Discovery URL, used to auto-configure `AUTHORIZE_URL`, `TOKEN_URL`, and `USERINFO_URL`                             |          |                   |
-| `AUTHORIZE_URL`      | OAuth Authorization Request URL ([spec](https://tools.ietf.org/html/rfc6749#section-4.1.1))                                       | ✔\*      |                   |
-| `TOKEN_URL`          | OAuth Access Token Endpoint                                                                                                       | ✔\*      |                   |
-| `USERINFO_URL`       | OpenID Connect UserInfo endpoint, must include `sub` field                                                                        | ✔\*      |                   |
-| `CLIENT_ID`          | OAuth Client ID                                                                                                                   | ✔        |                   |
-| `CLIENT_SECRET`      | OAuth Client Secret                                                                                                               | ✔        |                   |
-| `ALLOWED_USERS`      | Comma-separated list of allowed `sub` values; empty = anyone                                                                      |          | `[]`              |
-| `SCOPES`             | Space-separated OAuth scopes, passed verbatim as the `scope` parameter                                                            |          |                   |
-| `CALLBACK_PORT`        | Port for the centralized callback server (see [Centralized Callback](#centralized-callback)); disabled when unset                      |          |                   |
-| `CALLBACK_URL`         | Public URL of the centralized callback endpoint, e.g. `https://auth-cb.example.com/callback` (required when `CALLBACK_PORT` set)      |          |                   |
+| Environment Variable       | Description                                                                                                                                                                   | Required | Default           |
+| -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------------- |
+| `LISTEN_HOST`              | Host to bind                                                                                                                                                                  |          | `0.0.0.0`         |
+| `LISTEN_PORT`              | Port to bind                                                                                                                                                                  |          | `8080`            |
+| `APP_KEY`                  | Key for cookie signing (min. 32 characters)                                                                                                                                   | ✔        |                   |
+| `COOKIE_NAME`              | Name of the session cookie                                                                                                                                                    |          | `__auth`          |
+| `COOKIE_AGE`               | Inactivity timeout in seconds, renewed on every request                                                                                                                       |          | `604800` (7 days) |
+| `SESSION_MAX_AGE`          | Absolute session lifetime in seconds; users must log in again this long after their login, regardless of activity                                                             |          | `604800` (7 days) |
+| `COOKIE_INSECURE`          | Allow cookies over insecure (HTTP) connections. Set to `true` for development, should be `false` in production                                                                |          | `false`           |
+| `REDIRECT_CODE`            | HTTP status code to return when redirecting<sup>[because](http://nginx.org/en/docs/http/ngx_http_auth_request_module.html)</sup>                                              |          | `302`             |
+| `DISCOVERY_URL`            | OpenID Connect Discovery URL, used to auto-configure `AUTHORIZE_URL`, `TOKEN_URL`, and `USERINFO_URL`                                                                         |          |                   |
+| `AUTHORIZE_URL`            | OAuth Authorization Request URL ([spec](https://tools.ietf.org/html/rfc6749#section-4.1.1))                                                                                   | ✔\*      |                   |
+| `TOKEN_URL`                | OAuth Access Token Endpoint                                                                                                                                                   | ✔\*      |                   |
+| `USERINFO_URL`             | OpenID Connect UserInfo endpoint, must include `sub` field                                                                                                                    | ✔\*      |                   |
+| `CLIENT_ID`                | OAuth Client ID                                                                                                                                                               | ✔        |                   |
+| `CLIENT_SECRET`            | OAuth Client Secret                                                                                                                                                           | ✔        |                   |
+| `ALLOWED_USERS`            | Comma-separated list of allowed `sub` values; empty = anyone                                                                                                                  |          | `[]`              |
+| `SCOPES`                   | Space-separated OAuth scopes, passed verbatim as the `scope` parameter                                                                                                        |          |                   |
+| `CALLBACK_PORT`            | Port for the centralized callback server (see [Centralized Callback](#centralized-callback)); disabled when unset                                                             |          |                   |
+| `CALLBACK_URL`             | Public URL of the centralized callback endpoint, e.g. `https://auth-cb.example.com/callback` (required when `CALLBACK_PORT` set)                                              |          |                   |
 | `CALLBACK_ALLOWED_DOMAINS` | Comma-separated domains the centralized callback may hand logins off to; `example.com` also matches `*.example.com`. **Strongly recommended** whenever `CALLBACK_PORT` is set |          |                   |
-| `CALLBACK_CENTRALISED` | Enable/disable centralized callback mode (`true`/`false`). Can be overridden per-request via query param (`?callback_centralised=false`) |          | `true`            |
-| `LOG_LEVEL`          | Log level (`DEBUG`, `INFO`, `WARN`, `ERROR`, `NONE`)                                                                              |          | `INFO`            |
+| `CALLBACK_CENTRALISED`     | Enable/disable centralized callback mode (`true`/`false`). Can be overridden per-request via query param (`?callback_centralised=false`)                                      |          | `true`            |
+| `LOGOUT_URL`               | Where to redirect after logout, e.g. your IdP's logout page. Defaults to the root of the protected service                                                                    |          |                   |
+| `LOG_LEVEL`                | Log level (`DEBUG`, `INFO`, `WARN`, `ERROR`, `NONE`)                                                                                                                          |          | `INFO`            |
 
 \* You can either provide individual URLs (`AUTHORIZE_URL`, `TOKEN_URL`, `USERINFO_URL`) OR use `DISCOVERY_URL` to automatically fetch them from an OpenID Connect provider's discovery document.
 
 When a client is authenticated, forward-auth passes `X-Auth-User` (and `X-Forwarded-User`) with the `sub` and `X-Auth-Info` with the JSON-encoded `USERINFO_URL` response. These can be forwarded to your application via the reverse proxy (see examples below).
+
+The session, including the user info, is stored in a signed cookie. To stay below the browser limit of 4096 bytes, the largest user info claims (e.g. long `groups` lists) are dropped from the session and from `X-Auth-Info` when needed; `sub` is always kept.
+
+## Logout
+
+Send users to `/_auth/logout` on any protected service to clear their session. They are then redirected to `LOGOUT_URL`, or to the root of the service if it is unset. Since your IdP usually still has an active session, the user will often be logged straight back in. Set `LOGOUT_URL` to your IdP's logout page to end both sessions.
 
 > [!WARNING]
 > **Never expose the forward-auth port (`LISTEN_PORT`) to clients.** It must only be reachable by your reverse proxy.

@@ -57,13 +57,16 @@ const config = {
 	scopes: process.env.SCOPES || undefined,
 
 	cookie_name: process.env.COOKIE_NAME || '__auth',
-	cookie_age: parseIntEnv('COOKIE_AGE', 604800), // 7 days
+	cookie_age: parseIntEnv('COOKIE_AGE', 604800), // 7 days, renewed on every request
+	session_max_age: parseIntEnv('SESSION_MAX_AGE', 604800), // 7 days after login, then re-authenticate
 	cookie_insecure: process.env.COOKIE_INSECURE === 'true',
 
 	callback_port: process.env.CALLBACK_PORT ? parseIntEnv('CALLBACK_PORT', 0) : undefined,
 	callback_url: process.env.CALLBACK_URL || undefined,
 	callback_centralised: process.env.CALLBACK_CENTRALISED !== 'false',
 	callback_allowed_domains: process.env.CALLBACK_ALLOWED_DOMAINS || undefined,
+
+	logout_url: process.env.LOGOUT_URL || undefined,
 
 	log_level: parseLogLevel(process.env.LOG_LEVEL),
 };
