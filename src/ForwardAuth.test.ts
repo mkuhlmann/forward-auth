@@ -50,6 +50,13 @@ const testFetch = async (url: string, options: RequestInit = {}): Promise<Respon
 		options.headers = {};
 	}
 
+	// Requests arrive via the reverse proxy, which always sets the forwarded headers
+	options.headers = {
+		'x-forwarded-proto': 'http',
+		'x-forwarded-host': 'app',
+		...options.headers,
+	};
+
 	// Add cookies to request
 	const cookieHeader = cookieJar.getCookieHeader();
 	if (cookieHeader) {
@@ -79,7 +86,8 @@ const testFetch = async (url: string, options: RequestInit = {}): Promise<Respon
 
 // Mock OAuth server state
 let currentUser = 'testOkUser';
-let mockOAuthServer: Server;
+let currentName = 'Test User';
+let mockOAuthServer: Server<unknown>;
 
 // Setup mock OAuth server
 beforeAll(() => {
@@ -98,7 +106,7 @@ beforeAll(() => {
 			} else if (url.pathname === '/userinfo') {
 				const authHeader = req.headers.get('authorization') || '';
 				const token = authHeader.split(' ')[1];
-				return new Response(JSON.stringify({ name: 'Test User', sub: currentUser }), {
+				return new Response(JSON.stringify({ name: currentName, sub: currentUser }), {
 					headers: { 'Content-Type': 'application/json' },
 				});
 			} else if (url.pathname === '/.well-known/openid-configuration') {
@@ -126,7 +134,7 @@ beforeAll(() => {
 			} else if (url.pathname === '/discovery-userinfo') {
 				const authHeader = req.headers.get('authorization') || '';
 				const token = authHeader.split(' ')[1];
-				return new Response(JSON.stringify({ name: 'Test User', sub: currentUser }), {
+				return new Response(JSON.stringify({ name: currentName, sub: currentUser }), {
 					headers: { 'Content-Type': 'application/json' },
 				});
 			}
@@ -188,7 +196,7 @@ describe('valid user calling OAuth callback', () => {
 		const response = await testFetch('http://127.0.0.1:8080/auth', {
 			headers: {
 				'x-forwarded-proto': 'http',
-				'x-forwarded-host': '127.0.0.1:8080',
+				'x-forwarded-host': 'app',
 				'x-forwarded-uri': '/_auth/callback?code=test&state=invalid',
 			},
 		});
@@ -213,7 +221,7 @@ describe('valid user calling OAuth callback', () => {
 		const response = await testFetch('http://127.0.0.1:8080/auth', {
 			headers: {
 				'x-forwarded-proto': 'http',
-				'x-forwarded-host': '127.0.0.1:8080',
+				'x-forwarded-host': 'app',
 				'x-forwarded-uri': `/_auth/callback?code=test&state=${oauthState}`,
 			},
 		});
@@ -249,7 +257,7 @@ describe('Invalid user calling OAuth callback', () => {
 		const response = await testFetch('http://127.0.0.1:8080/auth', {
 			headers: {
 				'x-forwarded-proto': 'http',
-				'x-forwarded-host': '127.0.0.1:8080',
+				'x-forwarded-host': 'app',
 				'x-forwarded-uri': `/_auth/callback?code=test&state=${oauthState}`,
 			},
 		});
@@ -314,7 +322,7 @@ describe('OIDC Discovery functionality', () => {
 		const callbackResponse = await testFetch('http://127.0.0.1:8080/auth', {
 			headers: {
 				'x-forwarded-proto': 'http',
-				'x-forwarded-host': '127.0.0.1:8080',
+				'x-forwarded-host': 'app',
 				'x-forwarded-uri': `/_auth/callback?code=test-code&state=${oauthState}`,
 			},
 		});
@@ -411,6 +419,7 @@ describe('Centralized callback mode', () => {
 		callback_port: 8083,
 		callback_url: 'http://127.0.0.1:8083/callback',
 		callback_centralised: true,
+		callback_allowed_domains: '127.0.0.1',
 		log_level: 4,
 	};
 
@@ -619,5 +628,111 @@ describe('Centralized callback mode', () => {
 			},
 		});
 		expect(finalResponse.status).toBe(401);
+	});
+
+	const centralState = async (host: string) => {
+		const authResponse = await centralFetch('http://127.0.0.1:8084/auth', {
+			headers: { 'x-forwarded-proto': 'http', 'x-forwarded-host': host, 'x-forwarded-uri': '/protected' },
+		});
+		return authResponse.headers.get('location')?.match(/[?&]state=([^&]+)/)?.[1] || '';
+	};
+
+	test('callback server refuses to hand off to an origin outside CALLBACK_ALLOWED_DOMAINS', async () => {
+		const stateParam = await centralState('evil.example');
+		const cbResponse = await fetch(`http://127.0.0.1:8083/callback?code=test&state=${stateParam}`, { redirect: 'manual' });
+		expect(cbResponse.status).toBe(400);
+		expect(cbResponse.headers.get('location')).toBeNull();
+	});
+
+	test('handoff token cannot be used as a session cookie', async () => {
+		const stateParam = await centralState('127.0.0.1:8084');
+		const cbResponse = await fetch(`http://127.0.0.1:8083/callback?code=test&state=${stateParam}`, { redirect: 'manual' });
+		const handoffParam = decodeURIComponent(cbResponse.headers.get('location')?.match(/[?&]handoff=([^&]+)/)?.[1] || '');
+		expect(handoffParam).toBeTruthy();
+
+		const response = await fetch('http://127.0.0.1:8084/auth', {
+			redirect: 'manual',
+			headers: { Cookie: `__auth=${handoffParam}`, 'x-forwarded-proto': 'http', 'x-forwarded-host': '127.0.0.1:8084' },
+		});
+		expect(response.status).toBe(302);
+	});
+
+	test('state token cannot be used as a handoff token', async () => {
+		const stateParam = decodeURIComponent(await centralState('127.0.0.1:8084'));
+		const response = await centralFetch('http://127.0.0.1:8084/auth', {
+			headers: {
+				'x-forwarded-proto': 'http',
+				'x-forwarded-host': '127.0.0.1:8084',
+				'x-forwarded-uri': `/_auth/callback?handoff=${encodeURIComponent(stateParam)}`,
+			},
+		});
+		expect(response.status).toBe(400);
+		expect(await response.text()).toBe('invalid handoff token');
+	});
+});
+
+describe('Session hardening', () => {
+	const login = async (host = 'app') => {
+		cookieJar = new TestCookieJar();
+		currentUser = 'testOkUser';
+		const authResponse = await testFetch('http://127.0.0.1:8080/auth', {
+			headers: { 'x-forwarded-host': host, 'x-forwarded-uri': '/' },
+		});
+		const oauthState = authResponse.headers.get('location')?.match(/state=([\w_-]+)$/i)?.[1] || '';
+		const callbackResponse = await testFetch('http://127.0.0.1:8080/auth', {
+			headers: { 'x-forwarded-host': host, 'x-forwarded-uri': `/_auth/callback?code=test&state=${oauthState}` },
+		});
+		expect(callbackResponse.status).toBe(302);
+	};
+
+	afterAll(() => {
+		currentName = 'Test User';
+	});
+
+	test('session cookie is rejected on a different host', async () => {
+		await login('app');
+		const sameHost = await testFetch('http://127.0.0.1:8080/auth', { headers: { 'x-forwarded-host': 'app' } });
+		expect(sameHost.status).toBe(200);
+
+		const otherHost = await testFetch('http://127.0.0.1:8080/auth', {
+			headers: { 'x-forwarded-host': 'other-app', 'x-forwarded-uri': '/' },
+		});
+		expect(otherHost.status).toBe(302);
+	});
+
+	test('allowed_users is enforced on every auth check, not only at login', async () => {
+		await login();
+		const response = await testFetch('http://127.0.0.1:8080/auth?allowed_users=someoneElse');
+		expect(response.status).toBe(401);
+	});
+
+	test('logged-in session rejects a callback without state (login CSRF)', async () => {
+		await login();
+		const response = await testFetch('http://127.0.0.1:8080/auth', {
+			headers: { 'x-forwarded-uri': '/_auth/callback?code=attackerCode' },
+		});
+		expect(response.status).toBe(400);
+		expect(await response.text()).toBe('invalid state');
+	});
+
+	test('user info with non-latin1 characters is passed as valid JSON', async () => {
+		currentName = 'Łukasz 日本';
+		await login();
+		const response = await testFetch('http://127.0.0.1:8080/auth');
+		expect(response.status).toBe(200);
+		expect(JSON.parse(response.headers.get('x-auth-info') || '{}').name).toBe('Łukasz 日本');
+	});
+
+	test('invalid redirect_code override is ignored', async () => {
+		cookieJar = new TestCookieJar();
+		const response = await testFetch('http://127.0.0.1:8080/auth?redirect_code=abc', {
+			headers: { 'x-forwarded-uri': '/' },
+		});
+		expect(response.status).toBe(302);
+	});
+
+	test('auth responses are not cacheable', async () => {
+		const response = await testFetch('http://127.0.0.1:8080/auth', { headers: { 'x-forwarded-uri': '/' } });
+		expect(response.headers.get('cache-control')).toBe('no-store');
 	});
 });

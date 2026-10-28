@@ -2,8 +2,9 @@ name: Testing
 
 on:
   workflow_call:
-  push:
-  pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   test:
@@ -13,9 +14,12 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.2.8
-      - run: bun install
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - run: bun run typecheck
       - run: bun run test

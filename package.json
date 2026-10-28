@@ -3,7 +3,8 @@
 	"type": "module",
 	"scripts": {
 		"start": "bun src/index.ts",
-		"test": "bun test"
+		"test": "bun test",
+		"typecheck": "tsc"
 	},
 	"dependencies": {},
 	"devDependencies": {

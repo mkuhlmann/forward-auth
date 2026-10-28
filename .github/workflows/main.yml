@@ -3,9 +3,11 @@ name: Push / Pull Request
 on:
   push:
     branches: ['master']
-    pull_request:
+  pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   test:
     uses: ./.github/workflows/test.yml
-    secrets: inherit

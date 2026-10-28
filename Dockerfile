@@ -1,12 +1,17 @@
-FROM oven/bun:1.3.12-alpine
+FROM oven/bun:1.4.4-alpine
 
-LABEL AUTHOR mkuhlmann
+LABEL org.opencontainers.image.authors="mkuhlmann" \
+	org.opencontainers.image.source="https://github.com/mkuhlmann/forward-auth"
+
+ENV NODE_ENV=production
 
 WORKDIR /app
-COPY --chown=bun:bun . .
+# Owned by root so the runtime user cannot modify the application
+COPY package.json ./
+COPY src ./src
 
 # Switch to non-root user
 USER bun
 
 EXPOSE 8080
-CMD ["bun", "start"]
+CMD ["bun", "src/index.ts"]

@@ -30,18 +30,23 @@ The following options are available:
 | `CLIENT_ID`          | OAuth Client ID                                                                                                                   | ✔        |                   |
 | `CLIENT_SECRET`      | OAuth Client Secret                                                                                                               | ✔        |                   |
 | `ALLOWED_USERS`      | Comma-separated list of allowed `sub` values; empty = anyone                                                                      |          | `[]`              |
-| `SCOPES`             | Comma-separated OAuth scopes                                                                                                      |          | `id`              |
+| `SCOPES`             | Space-separated OAuth scopes, passed verbatim as the `scope` parameter                                                            |          |                   |
 | `CALLBACK_PORT`        | Port for the centralized callback server (see [Centralized Callback](#centralized-callback)); disabled when unset                      |          |                   |
 | `CALLBACK_URL`         | Public URL of the centralized callback endpoint, e.g. `https://auth-cb.example.com/callback` (required when `CALLBACK_PORT` set)      |          |                   |
+| `CALLBACK_ALLOWED_DOMAINS` | Comma-separated domains the centralized callback may hand logins off to; `example.com` also matches `*.example.com`. **Strongly recommended** whenever `CALLBACK_PORT` is set |          |                   |
 | `CALLBACK_CENTRALISED` | Enable/disable centralized callback mode (`true`/`false`). Can be overridden per-request via query param (`?callback_centralised=false`) |          | `true`            |
 | `LOG_LEVEL`          | Log level (`DEBUG`, `INFO`, `WARN`, `ERROR`, `NONE`)                                                                              |          | `INFO`            |
 
 \* You can either provide individual URLs (`AUTHORIZE_URL`, `TOKEN_URL`, `USERINFO_URL`) OR use `DISCOVERY_URL` to automatically fetch them from an OpenID Connect provider's discovery document.
 
-When a client is authenticated, forward-auth passes `X-Auth-User` with the `sub` and `X-Auth-Info` with the JSON-encoded `USERINFO_URL` response. These can be forwarded to your application via the reverse proxy (see examples below).
+When a client is authenticated, forward-auth passes `X-Auth-User` (and `X-Forwarded-User`) with the `sub` and `X-Auth-Info` with the JSON-encoded `USERINFO_URL` response. These can be forwarded to your application via the reverse proxy (see examples below).
 
-> [!WARNING] > **Security Note on `X-Forwarded-*` Headers**
-> This service relies on `X-Forwarded-Host`, `X-Forwarded-Proto`, and `X-Forwarded-Uri` headers to construct redirect URLs and identify the original request. It is critical that your reverse proxy is configured to **overwrite** these headers and not trust the values provided by incoming client requests. Failure to do so can lead to open redirect vulnerabilities. The provided examples for Traefik and Nginx demonstrate a secure configuration.
+> [!WARNING]
+> **Never expose the forward-auth port (`LISTEN_PORT`) to clients.** It must only be reachable by your reverse proxy.
+> forward-auth trusts the query params of the `/auth` request (which can override `token_url`, `userinfo_url`, `allowed_users`, …) and the `X-Forwarded-Host`, `X-Forwarded-Proto` and `X-Forwarded-Uri` headers. Anyone who can call it directly can forge logins as any user.
+> Your reverse proxy must also **overwrite** the `X-Forwarded-*` headers instead of trusting values sent by clients. The Traefik and Nginx examples below do this.
+>
+> Sessions are bound to the host they were issued for and `allowed_users` is checked on every request, so a cookie from one protected service cannot be reused on another.
 
 ## OpenID Connect Discovery
 
@@ -66,7 +71,11 @@ Setting `CALLBACK_PORT` and `CALLBACK_URL` enables a **centralized callback serv
 ```
 CALLBACK_PORT=8081
 CALLBACK_URL=https://auth-callback.example.com/callback
+CALLBACK_ALLOWED_DOMAINS=example.com
 ```
+
+> [!IMPORTANT]
+> Set `CALLBACK_ALLOWED_DOMAINS`. The callback server sends a signed token carrying the user's identity to the origin recorded in the OAuth state. Without the allowlist, a misconfigured proxy that lets a client choose `X-Forwarded-Host` lets an attacker receive that token for a victim and take over their session.
 
 The secondary server listens on `CALLBACK_PORT` and exposes a single `GET /callback` endpoint. It must be reachable at `CALLBACK_URL` by the browser (i.e. exposed via your reverse proxy or directly).
 
@@ -85,7 +94,7 @@ The session cookie is always set on the originating service's domain. CSRF prote
 
 ### Traefik example
 
-Expose the callback server alongside the primary auth server and add it as the single registered redirect URI in your OAuth provider:
+Expose **only** the callback server (port 8081) publicly. The primary auth server (port 8080) is called by the forward-auth middleware and must not get a router of its own:
 
 ```yaml
 services:
@@ -98,11 +107,9 @@ services:
       - CLIENT_SECRET=verysecret
       - CALLBACK_PORT=8081
       - CALLBACK_URL=https://auth-callback.example.com/callback
+      - CALLBACK_ALLOWED_DOMAINS=example.com
     labels:
-      # Primary auth endpoint (internal, called by forward-auth middleware)
-      - 'traefik.http.routers.forward_auth.rule=PathPrefix(`/auth`)'
-      - 'traefik.http.routers.forward_auth.service=forward_auth'
-      - 'traefik.http.services.forward_auth.loadbalancer.server.port=8080'
+      - 'traefik.enable=true'
       # Centralized callback (public, called by the OAuth provider redirect)
       - 'traefik.http.routers.callback.rule=Host(`auth-callback.example.com`)'
       - 'traefik.http.routers.callback.service=callback'

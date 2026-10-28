@@ -6,6 +6,21 @@ export enum LogLevel {
 	NONE = 4,
 }
 
+// Query params that must never end up in logs (forward-auth is often configured via ?client_secret=...)
+const REDACTED_PARAMS = ['client_secret', 'code', 'handoff'];
+
+function redactUrl(raw: string): string {
+	try {
+		const url = new URL(raw);
+		for (const param of REDACTED_PARAMS) {
+			if (url.searchParams.has(param)) url.searchParams.set(param, '***');
+		}
+		return url.href;
+	} catch {
+		return raw;
+	}
+}
+
 export default class Log {
 	private logLevel: LogLevel = LogLevel.INFO;
 
@@ -21,7 +36,7 @@ export default class Log {
 	private getFormattedMessage(severity: string, message: string, ...args: any[]): string {
 		if (args[0] instanceof Request) {
 			const req = args[0] as Request;
-			message = `${message} | REQ: ${req.method} ${req.url}, IP - ${req.headers.get('x-forwarded-for')}`;
+			message = `${message} | REQ: ${req.method} ${redactUrl(req.url)}, IP - ${req.headers.get('x-forwarded-for')}`;
 			args = args.slice(1);
 		}
 

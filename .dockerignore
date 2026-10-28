@@ -1,0 +1,7 @@
+.git
+.github
+node_modules
+.env*
+config.json
+*.log
+src/**/*.test.ts
