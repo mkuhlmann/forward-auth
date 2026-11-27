@@ -10,6 +10,13 @@ on:
         description: Release tag to build, e.g. v2.4.0
         type: string
         required: true
+  # Rebuild the image of an existing release tag, e.g. when the release build failed
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build, e.g. v2.4.0
+        type: string
+        required: true
   push:
     tags: ['v*.*.*']
 
