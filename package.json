@@ -8,7 +8,7 @@
 	},
 	"dependencies": {},
 	"name": "forward-auth",
-	"version": "2.3.0",
+	"version": "2.4.0",
 	"devDependencies": {
 		"bun-types": "1.4.5"
 	}
