@@ -1,5 +1,5 @@
 # Bytecode is only valid for the exact Bun version that produced it, so both stages share this tag
-ARG BUN_IMAGE=oven/bun:1.4.4-alpine
+ARG BUN_IMAGE=oven/bun:1.4.5-alpine
 
 FROM ${BUN_IMAGE} AS build
 
