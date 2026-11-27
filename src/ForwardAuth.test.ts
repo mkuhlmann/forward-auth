@@ -1,5 +1,6 @@
 import { describe, expect, beforeAll, afterAll, test, beforeEach, setSystemTime } from 'bun:test';
 import { Server } from 'bun';
+import { createHash } from 'crypto';
 import { runForwardAuth } from './ForwardAuth';
 
 // Test configuration
@@ -19,6 +20,7 @@ const config = {
 	cookie_age: 604800,
 	session_max_age: 604800,
 	callback_centralised: true,
+	pkce: true,
 	log_level: 4,
 };
 
@@ -89,6 +91,8 @@ const testFetch = async (url: string, options: RequestInit = {}): Promise<Respon
 let currentUser = 'testOkUser';
 let currentName = 'Test User';
 let extraClaims: Record<string, unknown> = {};
+// Form body of the last token request the mock provider received
+let lastTokenRequest = new URLSearchParams();
 let mockOAuthServer: Server<unknown>;
 
 // Setup mock OAuth server
@@ -96,8 +100,12 @@ beforeAll(() => {
 	mockOAuthServer = Bun.serve({
 		port: 8081,
 		hostname: '127.0.0.1',
-		fetch(req) {
+		async fetch(req) {
 			const url = new URL(req.url);
+
+			if (url.pathname === '/token' || url.pathname === '/discovery-token') {
+				lastTokenRequest = new URLSearchParams(await req.text());
+			}
 
 			if (url.pathname === '/login') {
 				return new Response('/login');
@@ -152,6 +160,7 @@ afterAll(() => {
 	forwardAuthService.server.stop();
 });
 
+const s256 = (value: string) => createHash('sha256').update(value).digest('base64url');
 const queryOf = (location: string | null) => new URL(location || 'http://invalid').searchParams;
 
 describe('Unauthenticated user', () => {
@@ -425,6 +434,7 @@ describe('Centralized callback mode', () => {
 		callback_url: 'http://127.0.0.1:8083/callback',
 		callback_centralised: true,
 		callback_allowed_domains: '127.0.0.1',
+		pkce: true,
 		log_level: 4,
 	};
 
@@ -629,6 +639,30 @@ describe('Centralized callback mode', () => {
 		expect(finalResponse.status).toBe(401);
 	});
 
+	test('callback server sends the PKCE verifier matching the challenge', async () => {
+		const authResponse = await centralFetch('http://127.0.0.1:8084/auth', {
+			headers: { 'x-forwarded-proto': 'http', 'x-forwarded-host': '127.0.0.1:8084', 'x-forwarded-uri': '/protected' },
+		});
+		const authorize = queryOf(authResponse.headers.get('location'));
+		expect(authorize.get('code_challenge_method')).toBe('S256');
+
+		const cbResponse = await fetch(`http://127.0.0.1:8083/callback?code=test&state=${encodeURIComponent(authorize.get('state') || '')}`, { redirect: 'manual' });
+		expect(cbResponse.status).toBe(302);
+		expect(s256(lastTokenRequest.get('code_verifier') || '')).toBe(authorize.get('code_challenge')!);
+	});
+
+	test('callback server omits the PKCE verifier when the service disabled PKCE', async () => {
+		const authResponse = await centralFetch('http://127.0.0.1:8084/auth?pkce=false', {
+			headers: { 'x-forwarded-proto': 'http', 'x-forwarded-host': '127.0.0.1:8084', 'x-forwarded-uri': '/protected' },
+		});
+		const authorize = queryOf(authResponse.headers.get('location'));
+		expect(authorize.has('code_challenge')).toBe(false);
+
+		const cbResponse = await fetch(`http://127.0.0.1:8083/callback?code=test&state=${encodeURIComponent(authorize.get('state') || '')}`, { redirect: 'manual' });
+		expect(cbResponse.status).toBe(302);
+		expect(lastTokenRequest.has('code_verifier')).toBe(false);
+	});
+
 	const centralState = async (host: string) => {
 		const authResponse = await centralFetch('http://127.0.0.1:8084/auth', {
 			headers: { 'x-forwarded-proto': 'http', 'x-forwarded-host': host, 'x-forwarded-uri': '/protected' },
@@ -806,6 +840,32 @@ describe('Session hardening', () => {
 		});
 		expect(callbackResponse.status).toBe(302);
 		expect(callbackResponse.headers.get('location')).toBe('http://app');
+	});
+	test('login sends a PKCE challenge and the matching verifier', async () => {
+		cookieJar = new TestCookieJar();
+		const authResponse = await testFetch('http://127.0.0.1:8080/auth', { headers: { 'x-forwarded-uri': '/' } });
+		const authorize = queryOf(authResponse.headers.get('location'));
+		expect(authorize.get('code_challenge_method')).toBe('S256');
+
+		const callbackResponse = await testFetch('http://127.0.0.1:8080/auth', {
+			headers: { 'x-forwarded-uri': `/_auth/callback?code=test&state=${authorize.get('state')}` },
+		});
+		expect(callbackResponse.status).toBe(302);
+		expect(s256(lastTokenRequest.get('code_verifier') || '')).toBe(authorize.get('code_challenge')!);
+	});
+
+	test('pkce=false disables PKCE for a service', async () => {
+		cookieJar = new TestCookieJar();
+		const authResponse = await testFetch('http://127.0.0.1:8080/auth?pkce=false', { headers: { 'x-forwarded-uri': '/' } });
+		const authorize = queryOf(authResponse.headers.get('location'));
+		expect(authorize.has('code_challenge')).toBe(false);
+		expect(authorize.has('code_challenge_method')).toBe(false);
+
+		const callbackResponse = await testFetch('http://127.0.0.1:8080/auth?pkce=false', {
+			headers: { 'x-forwarded-uri': `/_auth/callback?code=test&state=${authorize.get('state')}` },
+		});
+		expect(callbackResponse.status).toBe(302);
+		expect(lastTokenRequest.has('code_verifier')).toBe(false);
 	});
 
 	test('state nonce is 256 bits of randomness', async () => {

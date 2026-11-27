@@ -1,4 +1,4 @@
-import { randomBytes } from 'crypto';
+import { createHash, createHmac, randomBytes } from 'crypto';
 import { CookieJar } from './CookieJar';
 import Log, { LogLevel } from './Log';
 
@@ -38,6 +38,7 @@ interface Config {
 	callback_centralised: boolean;
 	callback_allowed_domains?: string;
 	logout_url?: string;
+	pkce: boolean;
 	log_level: LogLevel;
 }
 
@@ -61,6 +62,7 @@ interface OIDCDiscoveryDocument {
 interface CentralizedState {
 	uuid: string; // the session state nonce (also stored in session cookie)
 	origin: string; // e.g. "https://app-a.example.com"
+	pkce?: boolean; // whether the authorize request carried a PKCE challenge (pkce can be disabled per service)
 	exp: number;
 }
 
@@ -124,6 +126,17 @@ class ForwardAuth {
 		} catch {
 			return null;
 		}
+	}
+
+	// The PKCE verifier is derived from the login nonce, so both the primary and the callback server can
+	// recompute it without storing it. A code injected into another login attempt has a different nonce
+	// and therefore fails the provider's PKCE check.
+	private pkceVerifier(nonce: string): string {
+		return createHmac('sha256', this.config.app_key).update(`pkce.${nonce}`).digest('base64url');
+	}
+
+	private pkceChallenge(nonce: string): string {
+		return createHash('sha256').update(this.pkceVerifier(nonce)).digest('base64url');
 	}
 
 	isUserAllowed(config: Config, sub: string): boolean {
@@ -228,6 +241,7 @@ class ForwardAuth {
 			const centralizedState: CentralizedState = {
 				uuid,
 				origin,
+				pkce: config.pkce,
 				exp: this.unixtime() + STATE_TTL,
 			};
 			oauthState = this.signToken('state', centralizedState);
@@ -240,6 +254,10 @@ class ForwardAuth {
 		authorizeUrl.searchParams.set('redirect_uri', this.getRedirectUri(req, config));
 		authorizeUrl.searchParams.set('response_type', 'code');
 		authorizeUrl.searchParams.set('scope', config.scopes || '');
+		if (config.pkce) {
+			authorizeUrl.searchParams.set('code_challenge', this.pkceChallenge(uuid));
+			authorizeUrl.searchParams.set('code_challenge_method', 'S256');
+		}
 		authorizeUrl.searchParams.set('state', oauthState);
 		const redirectUrl = authorizeUrl.href;
 
@@ -278,13 +296,15 @@ class ForwardAuth {
 			return new Response('invalid state', { status: 400 });
 		}
 
+		const nonce = session.state;
 		delete session.state;
 		this.log.debug('handleOAuthCallback :: State validated, exchanging code for token', req);
 
 		const query = Object.fromEntries(new URL(req.url).searchParams);
 		const config = await this.getConfigWithDiscovery(query);
 
-		const userinfo = await this.exchangeCode(config, browserQuery.code, this.getRedirectUri(req, config), req, 'handleOAuthCallback');
+		const codeVerifier = config.pkce ? this.pkceVerifier(nonce) : undefined;
+		const userinfo = await this.exchangeCode(config, browserQuery.code, this.getRedirectUri(req, config), codeVerifier, req, 'handleOAuthCallback');
 		if (userinfo instanceof Response) return userinfo;
 
 		if (!this.isUserAllowed(config, userinfo.sub)) {
@@ -427,7 +447,9 @@ class ForwardAuth {
 
 		const config = await this.getConfigWithDiscovery({});
 
-		const userinfo = await this.exchangeCode(config, params.code, this.config.callback_url || '', req, 'handleCentralizedCallback');
+		// pkce comes from the signed state, as it may have been disabled for the originating service only
+		const codeVerifier = centralizedState.pkce ? this.pkceVerifier(centralizedState.uuid) : undefined;
+		const userinfo = await this.exchangeCode(config, params.code, this.config.callback_url || '', codeVerifier, req, 'handleCentralizedCallback');
 		if (userinfo instanceof Response) return userinfo;
 
 		// Build the signed handoff token and redirect to the originating service.
@@ -453,18 +475,21 @@ class ForwardAuth {
 
 	// Exchange an authorization code for an access token and fetch the user info.
 	// Returns the user, or a Response describing the failure.
-	private async exchangeCode(config: Config, code: string, redirectUri: string, req: Request, ctx: string): Promise<User | Response> {
+	private async exchangeCode(config: Config, code: string, redirectUri: string, codeVerifier: string | undefined, req: Request, ctx: string): Promise<User | Response> {
 		try {
+			const body = new URLSearchParams({
+				client_id: config.client_id || '',
+				client_secret: config.client_secret || '',
+				code,
+				grant_type: 'authorization_code',
+				redirect_uri: redirectUri,
+			});
+			if (codeVerifier) body.set('code_verifier', codeVerifier);
+
 			const tokenResponse = await fetch(config.token_url, {
 				method: 'POST',
 				headers: { accept: 'application/json' },
-				body: new URLSearchParams({
-					client_id: config.client_id || '',
-					client_secret: config.client_secret || '',
-					code,
-					grant_type: 'authorization_code',
-					redirect_uri: redirectUri,
-				}),
+				body,
 				signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
 			});
 
@@ -618,6 +643,10 @@ class ForwardAuth {
 
 		if (query.allowed_users) {
 			config.allowed_users = query.allowed_users;
+		}
+
+		if (query.pkce !== undefined) {
+			config.pkce = query.pkce !== 'false';
 		}
 
 		if (query.callback_centralised !== undefined) {

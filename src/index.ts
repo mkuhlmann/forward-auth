@@ -68,6 +68,8 @@ const config = {
 
 	logout_url: process.env.LOGOUT_URL || undefined,
 
+	pkce: process.env.PKCE !== 'false',
+
 	log_level: parseLogLevel(process.env.LOG_LEVEL),
 };
 

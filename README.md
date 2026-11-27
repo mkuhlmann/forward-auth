@@ -197,6 +197,7 @@ With `DISCOVERY_URL`, the endpoints are read from `/.well-known/openid-configura
 | `SESSION_MAX_AGE` | Absolute session lifetime in seconds — users log in again after this, however active | `604800` (7 d) |
 | `COOKIE_INSECURE` | Set to `true` to allow cookies over plain HTTP (development only)                    | `false`        |
 | `LOGOUT_URL`      | Where to send users after logout, e.g. your provider's logout page · _per service_   | service root   |
+| `PKCE`            | Set to `false` for providers that reject PKCE parameters · _per service_             | `true`         |
 
 ### Server
 
@@ -271,6 +272,7 @@ What forward-auth takes care of:
 - Sessions are **bound to the domain** they were issued for, and `allowed_users` is checked on **every request** — a cookie from one service can't be reused on another
 - Cookies and tokens are **signed (HMAC-SHA256)**, separated by purpose and always **expire**
 - Login **CSRF protection** through a state nonce tied to the session cookie
+- **PKCE** (S256), so a stolen authorization code can't be used in another login. Providers without PKCE support ignore it
 - Secrets and authorization codes are **redacted from logs**; auth responses are never cached
 
 Found a vulnerability? Please report it privately to the maintainer instead of opening a public issue.
