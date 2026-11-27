@@ -152,6 +152,8 @@ afterAll(() => {
 	forwardAuthService.server.stop();
 });
 
+const queryOf = (location: string | null) => new URL(location || 'http://invalid').searchParams;
+
 describe('Unauthenticated user', () => {
 	let response: Response;
 
@@ -804,5 +806,25 @@ describe('Session hardening', () => {
 		});
 		expect(callbackResponse.status).toBe(302);
 		expect(callbackResponse.headers.get('location')).toBe('http://app');
+	});
+
+	test('state nonce is 256 bits of randomness', async () => {
+		cookieJar = new TestCookieJar();
+		const authResponse = await testFetch('http://127.0.0.1:8080/auth', { headers: { 'x-forwarded-uri': '/' } });
+		expect(queryOf(authResponse.headers.get('location')).get('state')).toMatch(/^[\w-]{43}$/);
+	});
+
+	test('a sub that cannot be sent as a header is rejected at login', async () => {
+		cookieJar = new TestCookieJar();
+		const authResponse = await testFetch('http://127.0.0.1:8080/auth', { headers: { 'x-forwarded-uri': '/' } });
+		const state = queryOf(authResponse.headers.get('location')).get('state');
+
+		extraClaims = { sub: 'Łukasz' };
+		const callbackResponse = await testFetch('http://127.0.0.1:8080/auth', {
+			headers: { 'x-forwarded-uri': `/_auth/callback?code=test&state=${state}` },
+		});
+		extraClaims = {};
+		expect(callbackResponse.status).toBe(401);
+		expect(await callbackResponse.text()).toBe('invalid user info');
 	});
 });

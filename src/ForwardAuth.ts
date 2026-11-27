@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import { CookieJar } from './CookieJar';
 import Log, { LogLevel } from './Log';
 
@@ -83,6 +84,8 @@ const DISCOVERY_CACHE_TTL = 3600;
 const DISCOVERY_CACHE_MAX_ENTRIES = 100;
 // Browsers drop cookies larger than 4096 bytes, which would cause an endless login loop
 const MAX_COOKIE_BYTES = 4096;
+// OIDC limits sub to ASCII; anything else cannot be sent in the X-Auth-User header
+const VALID_SUB = /^[\x21-\x7e]([\x20-\x7e]*[\x21-\x7e])?$/;
 
 export function isValidRedirectCode(code: number): boolean {
 	return Number.isInteger(code) && ((code >= 300 && code <= 399) || code === 401 || code === 403);
@@ -202,7 +205,7 @@ class ForwardAuth {
 			return new Response('invalid configuration', { status: 500 });
 		}
 
-		const uuid = Bun.randomUUIDv7('base64url');
+		const uuid = randomBytes(32).toString('base64url');
 		const origin = this.getOrigin(req);
 
 		// Session cookie always stores the raw uuid as state
@@ -498,6 +501,10 @@ class ForwardAuth {
 				return new Response('invalid user info', { status: 401 });
 			}
 			userinfo.sub = String(userinfo.sub);
+			if (!VALID_SUB.test(userinfo.sub)) {
+				this.log.error(`${ctx} :: User info sub contains characters other than printable ASCII`, req);
+				return new Response('invalid user info', { status: 401 });
+			}
 
 			this.log.debug(`${ctx} :: User info retrieved, user=${userinfo.sub}`, req);
 			return userinfo;

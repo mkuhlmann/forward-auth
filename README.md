@@ -132,13 +132,16 @@ server {
 		auth_request_set $auth_location $upstream_http_location;
 		auth_request_set $auth_cookie $upstream_http_set_cookie;
 		auth_request_set $auth_user $upstream_http_x_auth_user;
+		auth_request_set $auth_forwarded_user $upstream_http_x_forwarded_user;
 		auth_request_set $auth_info $upstream_http_x_auth_info;
 		add_header Set-Cookie $auth_cookie;
 
 		error_page 403 = @auth_redirect;
 		error_page 401 = @auth_denied;
 
+		# Set every identity header, otherwise clients can send their own values to the app
 		proxy_set_header X-Auth-User $auth_user;
+		proxy_set_header X-Forwarded-User $auth_forwarded_user;
 		proxy_set_header X-Auth-Info $auth_info;
 		proxy_set_header Host $host;
 		proxy_pass http://upstream;
@@ -157,6 +160,9 @@ When a request is authenticated, forward-auth responds with these headers. Tell 
 | `X-Auth-User`      | The user's `sub` (unique ID at your provider)            |
 | `X-Forwarded-User` | Same as `X-Auth-User`, for apps that expect this name    |
 | `X-Auth-Info`      | The full user info response as JSON (`name`, `email`, …) |
+
+> [!WARNING]
+> Your proxy must **overwrite** every header your app reads, otherwise clients can send their own `X-Auth-User` or `X-Forwarded-User` and impersonate anyone. Traefik replaces all headers listed in `authResponseHeaders`; with nginx, set each one with `proxy_set_header` as in the example above.
 
 Sessions are stored in a signed cookie, which browsers limit to 4 KB. If the user info is too large, the biggest claims (e.g. a long `groups` list) are left out; `sub` is always kept.
 
@@ -178,7 +184,7 @@ http://forward_auth:8080/auth?allowed_users=alice,bob&scopes=openid%20email
 | `DISCOVERY_URL` | OIDC issuer URL, e.g. `https://accounts.google.com` · _per service_          |
 | _or_            | `AUTHORIZE_URL`, `TOKEN_URL` and `USERINFO_URL` individually · _per service_ |
 
-With `DISCOVERY_URL`, the endpoints are read from `/.well-known/openid-configuration` (cached for an hour). Explicitly set endpoint URLs take precedence. The user info endpoint must return a `sub` field.
+With `DISCOVERY_URL`, the endpoints are read from `/.well-known/openid-configuration` (cached for an hour). Explicitly set endpoint URLs take precedence. The user info endpoint must return a `sub` field of printable ASCII characters (as required by OpenID Connect).
 
 ### Access & sessions
 
