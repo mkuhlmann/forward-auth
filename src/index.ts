@@ -1,4 +1,4 @@
-import { isValidRedirectCode, runForwardAuth } from './ForwardAuth';
+import { isValidRedirectCode, resolveCookieName, runForwardAuth } from './ForwardAuth';
 import { LogLevel } from './Log';
 
 // Parse log level from environment variable
@@ -33,6 +33,8 @@ function parseIntEnv(name: string, fallback: number): number {
 	return value;
 }
 
+const cookieInsecure = process.env.COOKIE_INSECURE === 'true';
+
 const appKey = process.env.APP_KEY;
 if (!appKey || appKey.length < 32) {
 	throw new Error('APP_KEY is required and must be at least 32 characters long.');
@@ -56,10 +58,10 @@ const config = {
 	allowed_users: process.env.ALLOWED_USERS || undefined,
 	scopes: process.env.SCOPES || undefined,
 
-	cookie_name: process.env.COOKIE_NAME || '__auth',
+	cookie_name: resolveCookieName(process.env.COOKIE_NAME, cookieInsecure),
 	cookie_age: parseIntEnv('COOKIE_AGE', 604800), // 7 days, renewed on every request
 	session_max_age: parseIntEnv('SESSION_MAX_AGE', 604800), // 7 days after login, then re-authenticate
-	cookie_insecure: process.env.COOKIE_INSECURE === 'true',
+	cookie_insecure: cookieInsecure,
 
 	callback_port: process.env.CALLBACK_PORT ? parseIntEnv('CALLBACK_PORT', 0) : undefined,
 	callback_url: process.env.CALLBACK_URL || undefined,

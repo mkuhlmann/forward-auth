@@ -89,6 +89,17 @@ const MAX_COOKIE_BYTES = 4096;
 // OIDC limits sub to ASCII; anything else cannot be sent in the X-Auth-User header
 const VALID_SUB = /^[\x21-\x7e]([\x20-\x7e]*[\x21-\x7e])?$/;
 
+// The __Host- prefix makes browsers reject the cookie unless it is Secure, host-only and Path=/,
+// so a sibling subdomain cannot plant (toss) its own session cookie for a protected service.
+// Prefixed cookies require Secure, so plain-HTTP setups fall back to an unprefixed name.
+export function resolveCookieName(name: string | undefined, insecure: boolean): string {
+	if (!name) return insecure ? '__auth' : '__Host-auth';
+	if (insecure && /^__(host|secure)-/i.test(name)) {
+		throw new Error(`COOKIE_NAME "${name}" requires Secure cookies, it cannot be used with COOKIE_INSECURE=true.`);
+	}
+	return name;
+}
+
 export function isValidRedirectCode(code: number): boolean {
 	return Number.isInteger(code) && ((code >= 300 && code <= 399) || code === 401 || code === 403);
 }

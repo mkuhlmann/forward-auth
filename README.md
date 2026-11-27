@@ -188,16 +188,16 @@ With `DISCOVERY_URL`, the endpoints are read from `/.well-known/openid-configura
 
 ### Access & sessions
 
-| Variable          | Description                                                                          | Default        |
-| ----------------- | ------------------------------------------------------------------------------------ | -------------- |
-| `ALLOWED_USERS`   | Comma-separated `sub` values allowed in; empty allows everyone · _per service_       | everyone       |
-| `SCOPES`          | Space-separated OAuth scopes, e.g. `openid email profile` · _per service_            |                |
-| `COOKIE_NAME`     | Name of the session cookie                                                           | `__auth`       |
-| `COOKIE_AGE`      | Inactivity timeout in seconds, renewed with every request                            | `604800` (7 d) |
-| `SESSION_MAX_AGE` | Absolute session lifetime in seconds — users log in again after this, however active | `604800` (7 d) |
-| `COOKIE_INSECURE` | Set to `true` to allow cookies over plain HTTP (development only)                    | `false`        |
-| `LOGOUT_URL`      | Where to send users after logout, e.g. your provider's logout page · _per service_   | service root   |
-| `PKCE`            | Set to `false` for providers that reject PKCE parameters · _per service_             | `true`         |
+| Variable          | Description                                                                                             | Default        |
+| ----------------- | ------------------------------------------------------------------------------------------------------- | -------------- |
+| `ALLOWED_USERS`   | Comma-separated `sub` values allowed in; empty allows everyone · _per service_                          | everyone       |
+| `SCOPES`          | Space-separated OAuth scopes, e.g. `openid email profile` · _per service_                               |                |
+| `COOKIE_NAME`     | Name of the session cookie                                                                              | `__Host-auth`  |
+| `COOKIE_AGE`      | Inactivity timeout in seconds, renewed with every request                                               | `604800` (7 d) |
+| `SESSION_MAX_AGE` | Absolute session lifetime in seconds — users log in again after this, however active                    | `604800` (7 d) |
+| `COOKIE_INSECURE` | Set to `true` to allow cookies over plain HTTP (development only); default cookie name becomes `__auth` | `false`        |
+| `LOGOUT_URL`      | Where to send users after logout, e.g. your provider's logout page · _per service_                      | service root   |
+| `PKCE`            | Set to `false` for providers that reject PKCE parameters · _per service_                                | `true`         |
 
 ### Server
 
@@ -271,6 +271,7 @@ What forward-auth takes care of:
 
 - Sessions are **bound to the domain** they were issued for, and `allowed_users` is checked on **every request** — a cookie from one service can't be reused on another
 - Cookies and tokens are **signed (HMAC-SHA256)**, separated by purpose and always **expire**
+- The session cookie uses the **`__Host-` prefix**, so other subdomains can't plant their own session cookie
 - Login **CSRF protection** through a state nonce tied to the session cookie
 - **PKCE** (S256), so a stolen authorization code can't be used in another login. Providers without PKCE support ignore it
 - Secrets and authorization codes are **redacted from logs**; auth responses are never cached

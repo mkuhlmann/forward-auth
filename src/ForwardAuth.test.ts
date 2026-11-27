@@ -1,7 +1,7 @@
 import { describe, expect, beforeAll, afterAll, test, beforeEach, setSystemTime } from 'bun:test';
 import { Server } from 'bun';
 import { createHash } from 'crypto';
-import { runForwardAuth } from './ForwardAuth';
+import { resolveCookieName, runForwardAuth } from './ForwardAuth';
 
 // Test configuration
 const config = {
@@ -886,5 +886,27 @@ describe('Session hardening', () => {
 		extraClaims = {};
 		expect(callbackResponse.status).toBe(401);
 		expect(await callbackResponse.text()).toBe('invalid user info');
+	});
+});
+
+describe('Cookie name', () => {
+	test('defaults to the __Host- prefix with secure cookies', () => {
+		expect(resolveCookieName(undefined, false)).toBe('__Host-auth');
+		expect(resolveCookieName('', false)).toBe('__Host-auth');
+	});
+
+	test('falls back to an unprefixed name with insecure cookies', () => {
+		expect(resolveCookieName(undefined, true)).toBe('__auth');
+	});
+
+	test('keeps an explicitly configured name', () => {
+		expect(resolveCookieName('my_session', false)).toBe('my_session');
+		expect(resolveCookieName('my_session', true)).toBe('my_session');
+		expect(resolveCookieName('__Host-custom', false)).toBe('__Host-custom');
+	});
+
+	test('rejects prefixed names with insecure cookies, browsers would drop them', () => {
+		expect(() => resolveCookieName('__Host-custom', true)).toThrow();
+		expect(() => resolveCookieName('__secure-custom', true)).toThrow();
 	});
 });
